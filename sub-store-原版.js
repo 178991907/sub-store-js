@@ -251,33 +251,51 @@ function getCountryByIPRange(ip) {
   return null;
 }
 
-// 提取节点的IP或域名
+// 提取节点的IP或域名（移除序号）
 function extractHost(proxy) {
-  // 优先从nodeName中提取IP（处理 "40 - 198.41.209.120" 这种格式）
-  if (proxy.name) {
-    // 匹配节点名中的IP地址
-    const ipMatch = proxy.name.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
-    if (ipMatch) {
-      return ipMatch[1];
-    }
-    // 匹配节点名中的域名（简单匹配）
-    const domainMatch = proxy.name.match(/([a-z0-9-]+\.[a-z0-9-.]+)/i);
-    if (domainMatch) {
-      return domainMatch[1];
-    }
+  if (!proxy.name) {
+    return proxy.server || proxy.hostname || proxy.host || '';
   }
-  // 备用：从代理配置中提取
+  
+  // 先移除序号（如 "01", "02" 等）
+  let cleanName = proxy.name.replace(/\s+\d{1,3}$/, '').trim();
+  
+  // 移除常见前缀（如 "40 - "）
+  cleanName = cleanName.replace(/^\d+\s*-\s*/, '').trim();
+  
+  // 方法1: 提取IP地址（最优先）
+  const ipMatch = cleanName.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+  if (ipMatch) {
+    return ipMatch[1];
+  }
+  
+  // 方法2: 提取域名（完整格式）
+  const domainMatch = cleanName.match(/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}/i);
+  if (domainMatch) {
+    return domainMatch[0];
+  }
+  
+  // 方法3: 备用 - 从配置中提取
   return proxy.server || proxy.hostname || proxy.host || '';
 }
 
 // 检查是否为IP地址
 function isIPAddress(str) {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str);
+  if (!str) return false;
+  const parts = str.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every(part => {
+    const num = parseInt(part, 10);
+    return num >= 0 && num <= 255 && part === num.toString();
+  });
 }
 
 // 检查是否为有效的域名
 function isDomain(str) {
-  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(str);
+  if (!str || str.length < 3) return false;
+  // 域名必须有至少一个点，且不能是IP地址
+  if (isIPAddress(str)) return false;
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(str);
 }
 
 // 解析IP地理位置（混合方案：离线优先 + 在线备用）
@@ -428,54 +446,69 @@ async function operator(pro) {
     let offlineSuccess = 0;
     let onlineSuccess = 0;
     let failCount = 0;
-    let filteredCount = 0; // 被过滤的节点
+    let filteredCount = 0;
     
     for (let i = pro.length - 1; i >= 0; i--) {
       const e = pro[i];
       const host = extractHost(e);
       
+      console.log(`[IPGeo] 处理节点: "${e.name}" -> 提取到: "${host}"`);
+      
       // 检查是否为有效的IP或域名
       if (!host || (!isIPAddress(host) && !isDomain(host))) {
         console.log(`[IPGeo] ✗ 过滤无效节点: "${e.name}" (非IP/域名)`);
-        pro.splice(i, 1); // 移除节点
+        pro.splice(i, 1);
         filteredCount++;
         continue;
       }
       
-      if (host) {
-        // 保存原始节点名，用于提取关键词
-        const originalName = e.name;
+      // 保存原始节点名（清理后）
+      let originalName = e.name;
+      // 移除序号和IP，只保留关键词
+      originalName = originalName.replace(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, '').trim();
+      originalName = originalName.replace(/\s+\d{1,3}$/, '').trim();
+      originalName = originalName.replace(/^\d+\s*-\s*/, '').trim();
+      
+      const geoInfo = await getIPGeo(host);
+      if (geoInfo && geoInfo.countryCode) {
+        const countryName = countryCodeMap[geoInfo.countryCode] || geoInfo.country;
+        e._geoCountry = countryName;
+        e._geoCode = geoInfo.countryCode;
         
-        const geoInfo = await getIPGeo(host);
-        if (geoInfo && geoInfo.countryCode) {
-          const countryName = countryCodeMap[geoInfo.countryCode] || geoInfo.country;
-          e._geoCountry = countryName;
-          e._geoCode = geoInfo.countryCode;
-          
-          // 提取关键词（从原始节点名）
-          let keywords = '';
-          if (BLKEY) {
-            const matched = BLKEYS.filter(keyword => {
-              const key = keyword.includes('>') ? keyword.split('>')[0] : keyword;
-              return originalName.includes(key);
-            });
-            if (matched.length > 0) {
-              keywords = matched.map(k => k.includes('>') ? k.split('>')[1] : k).join(' ');
+        // 提取关键词
+        let keywords = [];
+        if (BLKEY && originalName) {
+          BLKEYS.forEach(keyword => {
+            const key = keyword.includes('>') ? keyword.split('>')[0] : keyword;
+            const replacement = keyword.includes('>') ? keyword.split('>')[1] : keyword;
+            if (originalName.includes(key)) {
+              keywords.push(replacement);
             }
-          }
-          
-          // 重新组合节点名：国家 + 关键词
-          e.name = keywords ? `${countryName} ${keywords}` : countryName;
-          
-          if (isIPAddress(host) && getCountryByIPRange(host)) {
-            offlineSuccess++;
-          } else {
-            onlineSuccess++;
-          }
-        } else {
-          console.log(`[IPGeo] ✗ 跳过: ${host}`);
-          failCount++;
+          });
         }
+        
+        // 获取国旗
+        let flag = '';
+        if (addflag) {
+          const index = outList.indexOf(countryName);
+          if (index !== -1) {
+            flag = FG[index];
+            flag = flag === '🇹🇼' ? '🇨🇳' : flag;
+          }
+        }
+        
+        // 组合节点名：国旗 + 国家 + 关键词
+        const parts = [flag, countryName, ...keywords].filter(p => p);
+        e.name = parts.join(FGF);
+        
+        if (isIPAddress(host) && getCountryByIPRange(host)) {
+          offlineSuccess++;
+        } else {
+          onlineSuccess++;
+        }
+      } else {
+        console.log(`[IPGeo] ✗ 跳过: ${host}`);
+        failCount++;
       }
     }
     
@@ -494,6 +527,11 @@ async function operator(pro) {
       console.log('[IPGeo]  1. IP段数据库未覆盖这些IP（请反馈以便添加）');
       console.log('[IPGeo]  2. 域名节点且在线查询失败（需开启代理）');
     }
+    
+    // ipgeo模式下，直接添加序号并返回，不再执行后面的逻辑
+    jxh(pro);
+    numone && oneP(pro);
+    return pro;
   }
 
   pro.forEach((e) => {

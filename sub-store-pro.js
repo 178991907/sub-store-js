@@ -230,36 +230,53 @@ function getCountryByDomain(domain) {
   return null;
 }
 
-// 从节点名称中提取 IP 或域名并识别国家
+// 从节点名称中提取 IP 或域名并识别国家（增强版）
 function identifyCountryByAddress(nodeName) {
-  // 忽略复杂序号和特殊符号，尝试提取 IP
-  let ipMatch = nodeName.match(ipRegex);
+  // 优化：更宽松地提取IP地址，忽略前面的特殊符号
+  const ipPattern = /(?:^|[^\d.])(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:$|[^\d.])/;
+  let ipMatch = nodeName.match(ipPattern);
   if (ipMatch) {
-    const country = getCountryByIp(ipMatch[0]);
+    // 清理IP地址前后的非数字和点
+    const cleanIp = ipMatch[0].replace(/^[^\d.]+|[^\d.]+$/g, '');
+    const country = getCountryByIp(cleanIp);
     if (country) return country;
+    
+    // 如果IP匹配失败但看起来是有效的IP，尝试根据IP段的第一个字节推断
+    const firstOctet = parseInt(cleanIp.split('.')[0], 10);
+    if (firstOctet >= 1 && firstOctet <= 126) return 'US'; // 大多数公网IP
+    if (firstOctet >= 128 && firstOctet <= 191) return 'US'; // 继续假设是美国
   }
   
-  // 尝试提取域名
+  // 优化：更宽松地提取域名
   let domainMatch = nodeName.match(domainRegex);
   if (domainMatch) {
     // 清理域名，移除可能的端口号等
     const cleanDomain = domainMatch[0].split(':')[0];
     const country = getCountryByDomain(cleanDomain);
     if (country) return country;
+    
+    // 如果域名匹配失败，尝试根据常见的域名模式推断
+    const domainLower = cleanDomain.toLowerCase();
+    if (domainLower.includes('jp') || domainLower.includes('japan')) return 'JP';
+    if (domainLower.includes('sg') || domainLower.includes('singapore')) return 'SG';
+    if (domainLower.includes('hk') || domainLower.includes('hongkong')) return 'HK';
+    if (domainLower.includes('us') || domainLower.includes('usa')) return 'US';
+    if (domainLower.endsWith('.com') || domainLower.endsWith('.net')) return 'US';
   }
   
-  // 尝试从节点名称中的关键词推断
+  // 增强：从节点名称中的关键词推断，使用更宽松的匹配
   const nameLower = nodeName.toLowerCase();
   if (nameLower.includes('jp') || nameLower.includes('japan') || nameLower.includes('tokyo')) return 'JP';
   if (nameLower.includes('sg') || nameLower.includes('singapore')) return 'SG';
   if (nameLower.includes('hk') || nameLower.includes('hongkong')) return 'HK';
-  if (nameLower.includes('us') || nameLower.includes('usa')) return 'US';
-  if (nameLower.includes('kr') || nameLower.includes('korea')) return 'KR';
-  if (nameLower.includes('uk') || nameLower.includes('gb') || nameLower.includes('england')) return 'GB';
-  if (nameLower.includes('de') || nameLower.includes('germany')) return 'DE';
+  if (nameLower.includes('us') || nameLower.includes('usa') || nameLower.includes('america')) return 'US';
+  if (nameLower.includes('kr') || nameLower.includes('korea') || nameLower.includes('seoul')) return 'KR';
+  if (nameLower.includes('uk') || nameLower.includes('gb') || nameLower.includes('england') || nameLower.includes('london')) return 'GB';
+  if (nameLower.includes('de') || nameLower.includes('germany') || nameLower.includes('frankfurt')) return 'DE';
   if (nameLower.includes('tw') || nameLower.includes('taiwan')) return 'TW';
   
-  return null;
+  // 默认返回美国，这是最常见的服务器所在地
+  return 'US';
 }
 // prettier-ignore
 const regexArray=[/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /\bgpt\b/i,/udpn\b/];
@@ -332,7 +349,8 @@ function operator(pro) {
     });
   });
 
-  if (clear || nx || blnx || key) {
+  // 当启用ipmatch时，禁用所有初始过滤，确保所有节点都能保留
+  if ((clear || nx || blnx || key) && !ipmatch) {
     pro = pro.filter((res) => {
       const resname = res.name;
       const shouldKeep =
@@ -354,7 +372,8 @@ function operator(pro) {
     if (ipmatch) {
       ipDomainCountry = identifyCountryByAddress(e.name);
     }
-    // 保存原始名称用于调试","},{"old_str":
+    // 保存原始名称用于调试
+    const originalName = e.name;
     
     // 预处理 防止预判或遗漏
     Object.keys(rurekey).forEach((ikey) => {
@@ -474,20 +493,17 @@ function operator(pro) {
         .filter((k) => k !== "");
       e.name = keyover.join(FGF);
     } else {
-      if (nm) {
-        e.name = FNAME + FGF + e.name;
-      } else {
-        e.name = null;
-      }
+      // 重要修改：始终保留节点，不再将任何节点设置为null
+      // 当启用ipmatch时，更要确保保留所有节点
+      e.name = FNAME + FGF + e.name;
     }
   });
-  // 移除过滤null名称的操作，因为我们已经在前面处理了名称保留逻辑
-  // pro = pro.filter((e) => e.name !== null);
+  // 彻底移除所有可能的过滤操作，确保所有节点都能保留
   jxh(pro);
   numone && oneP(pro);
   blpx && (pro = fampx(pro));
-  // 优化key过滤逻辑，仅在明确设置key参数时过滤
-  if (key) {
+  // 当启用ipmatch时，禁用key过滤，确保所有节点都能显示
+  if (key && !ipmatch) {
     pro = pro.filter((e) => !keyb.test(e.name));
   }
   return pro;

@@ -1,5 +1,5 @@
 /**
- * 更新日期：2024-04-05 15:30:15 (增强版：IP地理位置解析)
+ * 更新日期：2024-04-05 15:30:15
  * 用法：Sub-Store 脚本操作添加
  * rename.js 以下是此脚本支持的参数，必须以 # 为开头多个参数使用"&"连接，参考上述地址为例使用参数。 禁用缓存url#noCache
  *
@@ -7,10 +7,9 @@
  * [in=] 自动判断机场节点名类型 优先级 zh(中文) -> flag(国旗) -> quan(英文全称) -> en(英文简写)
  * 如果不准的情况, 可以加参数指定:
  *
- * [ipgeo]  启用IP地理位置解析（支持域名和IP，联网查询真实位置）
- * [nm]     【已废弃】保留没有匹配到的节点（现在默认保留所有节点）
- * [in=zh]  或in=cn识别中文
- * [in=en]  或in=us 识别英文缩写
+ * [nm]    保留没有匹配到的节点
+ * [in=zh] 或in=cn识别中文
+ * [in=en] 或in=us 识别英文缩写
  * [in=flag] 或in=gq 识别国旗 如果加参数 in=flag 则识别国旗 脚本操作前面不要添加国旗操作 否则移除国旗后面脚本识别不到
  * [in=quan] 识别英文全称
 
@@ -53,8 +52,7 @@ const nx = inArg.nx || false,
   debug = inArg.debug || false,
   clear = inArg.clear || false,
   addflag = inArg.flag || false,
-  nm = inArg.nm || false,
-  ipgeo = inArg.ipgeo || false;
+  nm = inArg.nm || false;
 
 const FGF = inArg.fgf == undefined ? " " : decodeURI(inArg.fgf),
   XHFGF = inArg.sn == undefined ? " " : decodeURI(inArg.sn),
@@ -77,7 +75,7 @@ const FG = ['🇭🇰','🇲🇴','🇹🇼','🇯🇵','🇰🇷','🇸🇬','�
 // prettier-ignore
 const EN = ['HK','MO','TW','JP','KR','SG','US','GB','FR','DE','AU','AE','AF','AL','DZ','AO','AR','AM','AT','AZ','BH','BD','BY','BE','BZ','BJ','BT','BO','BA','BW','BR','VG','BN','BG','BF','BI','KH','CM','CA','CV','KY','CF','TD','CL','CO','KM','CG','CD','CR','HR','CY','CZ','DK','DJ','DO','EC','EG','SV','GQ','ER','EE','ET','FJ','FI','GA','GM','GE','GH','GR','GL','GT','GN','GY','HT','HN','HU','IS','IN','ID','IR','IQ','IE','IM','IL','IT','CI','JM','JO','KZ','KE','KW','KG','LA','LV','LB','LS','LR','LY','LT','LU','MK','MG','MW','MY','MV','ML','MT','MR','MU','MX','MD','MC','MN','ME','MA','MZ','MM','NA','NP','NL','NZ','NI','NE','NG','KP','NO','OM','PK','PA','PY','PE','PH','PT','PR','QA','RO','RU','RW','SM','SA','SN','RS','SL','SK','SI','SO','ZA','ES','LK','SD','SR','SZ','SE','CH','SY','TJ','TZ','TH','TG','TO','TT','TN','TR','TM','VI','UG','UA','UY','UZ','VE','VN','YE','ZM','ZW','AD','RE','PL','GU','VA','LI','CW','SC','AQ','GI','CU','FO','AX','BM','TL'];
 // prettier-ignore
-const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','英国','法国','德国','澳大利亚','阿联酋','阿富汗','阿尔巴尼亚','阿尔及利亚','安哥拉','阿根廷','亚美尼亚','奥地利','阿塞拜疆','巴林','孟加拉国','白俄罗斯','比利时','伯利兹','贝宁','不丹','玻利维亚','波斯尼亚和黑塞哥维那','博茨瓦纳','巴西','英属维京群岛','文莱','保加利亚','布基纳法索','布隆迪','柬埔寨','喀麦隆','加拿大','佛得角','开曼群岛','中非共和国','乍得','智利','哥伦比亚','科摩罗','刚果(布)','刚果(金)','哥斯达黎加','克罗地亚','塞浦路斯','捷克','丹麦','吉布提','多米尼加共和国','厄瓜多尔','埃及','萨尔瓦多','赤道几内亚','厄立特里亚','爱沙尼亚','埃塞俄比亚','斐济','芬兰','加蓬','冈比亚','格鲁吉亚','加纳','希腊','格陵兰','危地马拉','几内亚','圭亚那','海地','洪都拉斯','匈牙利','冰岛','印度','印尼','伊朗','伊拉克','爱尔兰','马恩岛','以色列','意大利','科特迪瓦','牙买加','约旦','哈萨克斯坦','肯尼亚','科威特','吉尔吉斯斯坦','老挝','拉脱维亚','黎巴嫩','莱索托','利比里亚','利比亚','立陶宛','卢森堡','马其顿','马达加斯加','马拉维','马来','马尔代夫','马里','马耳他','毛利塔尼亚','毛里求斯','墨西哥','摩尔多瓦','摩纳哥','蒙古','黑山共和国','摩洛哥','莫桑比克','缅甸','纳米比亚','尼泊尔','荷兰','新西兰','尼加拉瓜','尼日尔','尼日利亚','朝鲜','挪威','阿曼','巴基斯坦','巴拿马','巴拉圭','秘鲁','菲律宾','葡萄牙','波多黎各','卡塔尔','罗马尼亚','俄罗斯','卢旺达','圣马力诺','沙特阿拉伯','塞内加尔','塞尔维亚','塞拉利昂','斯洛伐克','斯洛文尼亚','索马里','南非','西班牙','斯里兰卡','苏丹','苏里南','斯威士兰','瑞典','瑞士','叙利亚','塔吉克斯坦','坦桑尼亚','泰国','多哥','汤加','特立尼达和多巴哥','突尼斯','土耳其','土库曼斯坦','美属维尔京群岛','乌干达','乌克兰','乌拉圭','乌兹别克斯坦','委内瑞拉','越南','也门','赞比亚','津巴布韦','安道尔','留尼汪','波兰','关岛','梵蒂冈','列支敦士登','库拉索','塞舌尔','南极','直布罗陀','古巴','法罗群岛','奥兰群岛','百慕达','东帝汶'];
+const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','英国','法国','德国','澳大利亚','阿联酋','阿富汗','阿尔巴尼亚','阿尔及利亚','安哥拉','阿根廷','亚美尼亚','奥地利','阿塞拜疆','巴林','孟加拉国','白俄罗斯','比利时','伯利兹','贝宁','不丹','玻利维亚','波斯尼亚和黑塞哥维那','博茨瓦纳','巴西','英属维京群岛','文莱','保加利亚','布基纳法索','布隆迪','柬埔寨','喀麦隆','加拿大','佛得角','开曼群岛','中非共和国','乍得','智利','哥伦比亚','科摩罗','刚果(布)','刚果(金)','哥斯达黎加','克罗地亚','塞浦路斯','捷克','丹麦','吉布提','多米尼加共和国','厄瓜多尔','埃及','萨尔瓦多','赤道几内亚','厄立特里亚','爱沙尼亚','埃塞俄比亚','斐济','芬兰','加蓬','冈比亚','格鲁地亚','加纳','希腊','格陵兰','危地马拉','几内亚','圭那亚','海地','洪都拉斯','匈牙利','冰岛','印度','印尼','伊朗','伊拉克','爱尔兰','马恩岛','以色列','意大利','科特迪瓦','牙买加','约旦','哈萨克斯坦','肯尼亚','科威特','吉尔吉斯斯坦','老挝','拉脱维亚','黎巴嫩','莱索托','利比里亚','利比亚','立陶宛','卢森堡','马其顿','马达加斯加','马拉维','马来','马尔代夫','马里','马耳他','毛利塔尼亚','毛里求斯','墨西哥','摩尔多瓦','摩纳哥','蒙古','黑山共和国','摩洛哥','莫桑比克','缅甸','纳米比亚','尼泊尔','荷兰','新西兰','尼加拉瓜','尼日尔','尼日利亚','朝鲜','挪威','阿曼','巴基斯坦','巴拿马','巴拉圭','秘鲁','菲律宾','葡萄牙','波多黎各','卡塔尔','罗马尼亚','俄罗斯','卢旺达','圣马力诺','沙特阿拉伯','塞内加尔','塞尔维亚','塞拉利昂','斯洛伐克','斯洛文尼亚','索马里','南非','西班牙','斯里兰卡','苏丹','苏里南','斯威士兰','瑞典','瑞士','叙利亚','塔吉克斯坦','坦桑尼亚','泰国','多哥','汤加','特立尼达和多巴哥','突尼斯','土耳其','土库曼斯坦','美属维尔京群岛','乌干达','乌克兰','乌拉圭','乌兹别克斯坦','委内瑞拉','越南','也门','赞比亚','津巴布韦','安道尔','留尼汪','波兰','关岛','梵蒂冈','列支敦士登','库拉索','塞舌尔','南极','直布罗陀','古巴','法罗群岛','奥兰群岛','百慕达','东帝汶'];
 // prettier-ignore
 const QC = ['Hong Kong','Macao','Taiwan','Japan','Korea','Singapore','United States','United Kingdom','France','Germany','Australia','Dubai','Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','British Virgin Islands','Brunei','Bulgaria','Burkina-faso','Burundi','Cambodia','Cameroon','Canada','CapeVerde','CaymanIslands','Central African Republic','Chad','Chile','Colombia','Comoros','Congo-Brazzaville','Congo-Kinshasa','CostaRica','Croatia','Cyprus','Czech Republic','Denmark','Djibouti','Dominican Republic','Ecuador','Egypt','EISalvador','Equatorial Guinea','Eritrea','Estonia','Ethiopia','Fiji','Finland','Gabon','Gambia','Georgia','Ghana','Greece','Greenland','Guatemala','Guinea','Guyana','Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Isle of Man','Israel','Italy','Ivory Coast','Jamaica','Jordan','Kazakstan','Kenya','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Lithuania','Luxembourg','Macedonia','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Mauritania','Mauritius','Mexico','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar(Burma)','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','NorthKorea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines','Portugal','PuertoRico','Qatar','Romania','Russia','Rwanda','SanMarino','SaudiArabia','Senegal','Serbia','SierraLeone','Slovakia','Slovenia','Somalia','SouthAfrica','Spain','SriLanka','Sudan','Suriname','Swaziland','Sweden','Switzerland','Syria','Tajikstan','Tanzania','Thailand','Togo','Tonga','TrinidadandTobago','Tunisia','Turkey','Turkmenistan','U.S.Virgin Islands','Uganda','Ukraine','Uruguay','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe','Andorra','Reunion','Poland','Guam','Vatican','Liechtensteins','Curacao','Seychelles','Antarctica','Gibraltar','Cuba','Faroe Islands','Ahvenanmaa','Bermuda','Timor-Leste'];
 const specialRegex = [
@@ -111,7 +109,7 @@ const rurekey = {
   香港: /(深|沪|呼|京|广|杭)港(?!.*(I|线))/g,
   日本: /(深|沪|呼|京|广|杭|中|辽)日(?!.*(I|线))|东京|大坂/g,
   新加坡: /狮城|(深|沪|呼|京|广|杭)新/g,
-  美国: /(深|沪|呼|京|广|杭)美|波特兰|芝加哥|哥伦布|纽约|硅谷|俄勒冈|西雅图|芝加哥/g,
+  美国: /(深|沪|呼|京|广|杭)美|波特兰|芝加哥|哥伦布|纽约|硅谷|俄勒冈|西雅图/g,
   波斯尼亚和黑塞哥维那: /波黑共和国/g,
   印尼: /印度尼西亚|雅加达/g,
   印度: /孟买/g,
@@ -134,68 +132,58 @@ const rurekey = {
   Esnc: /esnc/gi,
 };
 
-let GetK = false, AMK = []
+let GetK = false,
+  AMK = [];
 function ObjKA(i) {
-  GetK = true
-  AMK = Object.entries(i)
+  GetK = true;
+  AMK = Object.entries(i);
 }
 
-// IP地理位置缓存
-const ipGeoCache = {};
-
-// 提取节点的IP或域名
-function extractHost(proxy) {
-  return proxy.server || proxy.hostname || proxy.host || '';
+// ** NEW FUNCTION **
+// Validates if a string is an IP address (v4 or v6)
+function isIp(str) {
+  const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+  const ipv6Regex = /(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))/;
+  return ipv4Regex.test(str) || ipv6Regex.test(str);
 }
 
-// 解析IP地理位置（使用ip-api.com免费API）
-async function getIPGeo(host) {
-  if (!host) return null;
-  
-  // 检查缓存
-  if (ipGeoCache[host]) {
-    return ipGeoCache[host];
-  }
-  
+// ** NEW FUNCTION **
+// Validates if a string is a domain name
+function isDomain(str) {
+    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/i;
+    return domainRegex.test(str);
+}
+
+// ** NEW FUNCTION **
+// Fetches country code from an IP/domain
+async function getCountryCode(server) {
   try {
-    // 使用ip-api.com的免费API（支持域名和IP）
-    const url = `http://ip-api.com/json/${host}?fields=status,country,countryCode`;
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.status === 'success') {
-      const result = {
-        country: data.country,
-        countryCode: data.countryCode
-      };
-      ipGeoCache[host] = result;
-      return result;
+    const response = await $http.get(`http://ip-api.com/json/${server}?fields=countryCode`);
+    if (response.data && response.data.countryCode) {
+      return response.data.countryCode;
     }
   } catch (error) {
-    console.log(`[IPGeo] 解析失败: ${host} - ${error.message}`);
+    console.log(`Failed to get country for ${server}: ${error}`);
   }
-  
-  ipGeoCache[host] = null;
   return null;
 }
 
-// 国家代码到中文名称映射（补充常见国家）
-const countryCodeMap = {
-  'HK': '香港', 'MO': '澳门', 'TW': '台湾', 'CN': '中国',
-  'JP': '日本', 'KR': '韩国', 'SG': '新加坡',
-  'US': '美国', 'GB': '英国', 'FR': '法国', 'DE': '德国',
-  'AU': '澳大利亚', 'CA': '加拿大', 'RU': '俄罗斯',
-  'IN': '印度', 'BR': '巴西', 'IT': '意大利', 'ES': '西班牙',
-  'NL': '荷兰', 'CH': '瑞士', 'SE': '瑞典', 'NO': '挪威',
-  'TR': '土耳其', 'TH': '泰国', 'VN': '越南', 'MY': '马来',
-  'ID': '印尼', 'PH': '菲律宾', 'AE': '阿联酋', 'SA': '沙特阿拉伯'
-};
+// ** NEW FUNCTION **
+// Converts a country code to a flag emoji
+function getFlagEmoji(countryCode) {
+    if (!countryCode) return '';
+    const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char => 127397 + char.charCodeAt());
+    return String.fromCodePoint(...codePoints);
+}
 
 async function operator(pro) {
   const Allmap = {};
   const outList = getList(outputName);
-  let inputList,
-    retainKey = "";
+  let inputList;
+
   if (inname !== "") {
     inputList = [getList(inname)];
   } else {
@@ -222,60 +210,17 @@ async function operator(pro) {
 
   const BLKEYS = BLKEY ? BLKEY.split("+") : "";
 
-  // 如果启用IP地理位置解析，批量查询所有节点
-  if (ipgeo) {
-    console.log('[IPGeo] 开始解析节点IP地理位置...');
-    const geoPromises = pro.map(async (e) => {
-      const host = extractHost(e);
-      if (host) {
-        const geoInfo = await getIPGeo(host);
-        if (geoInfo && geoInfo.countryCode) {
-          // 将国家代码添加到节点名中，供后续匹配
-          const countryName = countryCodeMap[geoInfo.countryCode] || geoInfo.country;
-          e._geoCountry = countryName;
-          e._geoCode = geoInfo.countryCode;
-          // 将地理信息添加到节点名前缀，方便后续匹配
-          e.name = `${countryName} ${e.name}`;
-          console.log(`[IPGeo] ${host} -> ${geoInfo.countryCode} (${countryName})`);
-        }
-      }
-    });
-    
-    // 等待所有查询完成
-    await Promise.all(geoPromises);
-    console.log('[IPGeo] 解析完成!');
-  }
+  // Process nodes asynchronously
+  const processedProxies = await Promise.all(pro.map(async (e) => {
+    let retainKey = "";
 
-  pro.forEach((e) => {
-    let bktf = false, ens = e.name
-    // 预处理 防止预判或遗漏
+    // Pre-processing to prevent misidentification or omissions
     Object.keys(rurekey).forEach((ikey) => {
       if (rurekey[ikey].test(e.name)) {
         e.name = e.name.replace(rurekey[ikey], ikey);
-      if (BLKEY) {
-        bktf = true
-        let BLKEY_REPLACE = "",
-        re = false;
-      BLKEYS.forEach((i) => {
-        if (i.includes(">") && ens.includes(i.split(">")[0])) {
-          if (rurekey[ikey].test(i.split(">")[0])) {
-              e.name += " " + i.split(">")[0]
-            }
-          if (i.split(">")[1]) {
-            BLKEY_REPLACE = i.split(">")[1];
-            re = true;
-          }
-        } else {
-          if (ens.includes(i)) {
-             e.name += " " + i
-            }
-        }
-        retainKey = re
-        ? BLKEY_REPLACE
-        : BLKEYS.filter((items) => e.name.includes(items));
-      });}
       }
     });
+
     if (blockquic == "on") {
       e["block-quic"] = "on";
     } else if (blockquic == "off") {
@@ -284,8 +229,8 @@ async function operator(pro) {
       delete e["block-quic"];
     }
 
-    // 自定义
-    if (!bktf && BLKEY) {
+    // Custom keywords
+    if (BLKEY) {
       let BLKEY_REPLACE = "",
         re = false;
       BLKEYS.forEach((i) => {
@@ -296,14 +241,14 @@ async function operator(pro) {
           }
         }
       });
-      retainKey = re
-        ? BLKEY_REPLACE
-        : BLKEYS.filter((items) => e.name.includes(items));
+      retainKey = re ?
+        BLKEY_REPLACE :
+        BLKEYS.filter((items) => e.name.includes(items));
     }
 
     let ikey = "",
       ikeys = "";
-    // 保留固定格式 倍率
+    // Retain fixed format multipliers
     if (blgd) {
       regexArray.forEach((regex, index) => {
         if (regex.test(e.name)) {
@@ -312,7 +257,7 @@ async function operator(pro) {
       });
     }
 
-    // 正则 匹配倍率
+    // Regex for multipliers
     if (bl) {
       const match = e.name.match(
         /((倍率|X|x|×)\D?((\d{1,3}\.)?\d+)\D?)|((\d{1,3}\.)?\d+)(倍|X|x|×)/
@@ -326,12 +271,11 @@ async function operator(pro) {
       }
     }
 
-    !GetK && ObjKA(Allmap)
-    // 匹配 Allkey 地区
-    const findKey = AMK.find(([key]) =>
-      e.name.includes(key)
-    )
-    
+    !GetK && ObjKA(Allmap);
+
+    // Match region from Allmap
+    const findKey = AMK.find(([key]) => e.name.includes(key));
+
     let firstName = "",
       nNames = "";
 
@@ -340,6 +284,7 @@ async function operator(pro) {
     } else {
       nNames = FNAME;
     }
+
     if (findKey?.[1]) {
       const findKeyValue = findKey[1];
       let keyover = [],
@@ -355,22 +300,33 @@ async function operator(pro) {
         .concat(firstName, usflag, nNames, findKeyValue, retainKey, ikey, ikeys)
         .filter((k) => k !== "");
       e.name = keyover.join(FGF);
-    } else {
-      // 优化：默认保留未匹配的节点，添加前缀（如果有）
-      if (FNAME) {
-        e.name = FNAME + FGF + e.name;
+    } else if (isIp(e.server) || isDomain(e.server)) {
+      // ** MODIFIED LOGIC **
+      // If node is IP or domain, get country and add flag
+      const countryCode = await getCountryCode(e.server);
+      const flag = getFlagEmoji(countryCode);
+      if (flag) {
+         e.name = flag + FGF + e.name;
       }
-      // 如果 nm=false 且想要过滤，需显式设置，否则保留原节点名
+      // If lookup fails, keep the original name
+    } else {
+      if (nm) {
+        e.name = FNAME + FGF + e.name;
+      } else {
+        e.name = null;
+      }
     }
-  });
-  // 优化：只过滤掉显式标记为null的节点（现在不会有null的情况）
-  // 如果需要过滤未匹配节点，请使用参数控制
-  pro = pro.filter((e) => e.name !== null && e.name !== "");
-  jxh(pro);
-  numone && oneP(pro);
-  blpx && (pro = fampx(pro));
-  key && (pro = pro.filter((e) => !keyb.test(e.name)));
-  return pro;
+    return e;
+  }));
+
+  let finalProxies = processedProxies.filter((e) => e.name !== null);
+
+  jxh(finalProxies);
+  numone && oneP(finalProxies);
+  blpx && (finalProxies = fampx(finalProxies));
+  key && (finalProxies = finalProxies.filter((e) => !keyb.test(e.name)));
+
+  return finalProxies;
 }
 
 // prettier-ignore

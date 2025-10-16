@@ -251,31 +251,41 @@ function getCountryByIPRange(ip) {
   return null;
 }
 
-// 提取节点的IP或域名（移除序号）
+// 提取节点的IP或域名（移除序号和分隔符）
 function extractHost(proxy) {
   if (!proxy.name) {
     return proxy.server || proxy.hostname || proxy.host || '';
   }
   
-  // 先移除序号（如 "01", "02" 等）
-  let cleanName = proxy.name.replace(/\s+\d{1,3}$/, '').trim();
+  let cleanName = proxy.name;
   
-  // 移除常见前缀（如 "40 - "）
-  cleanName = cleanName.replace(/^\d+\s*-\s*/, '').trim();
+  // 第1步：移除末尾序号（如 "01", "02" 等）
+  cleanName = cleanName.replace(/\s+\d{1,3}$/, '').trim();
   
-  // 方法1: 提取IP地址（最优先）
+  // 第2步：移除前缀序号和各种分隔符（支持多种格式）
+  // 匹配: "105 ~ ", "40 - ", "01~", "02-", "3. " 等
+  cleanName = cleanName.replace(/^\d+\s*[~\-\.]\s*/, '').trim();
+  
+  // 第3步：再次清理可能残留的序号（以防万一）
+  cleanName = cleanName.replace(/^\d+\s+/, '').trim();
+  
+  console.log(`[Extract] 原始: "${proxy.name}" -> 清理后: "${cleanName}"`);
+  
+  // 第4步：提取IP地址（最优先）
   const ipMatch = cleanName.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
   if (ipMatch) {
+    console.log(`[Extract] 提取IP: ${ipMatch[1]}`);
     return ipMatch[1];
   }
   
-  // 方法2: 提取域名（完整格式）
+  // 第5步：提取域名（完整格式）
   const domainMatch = cleanName.match(/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}/i);
   if (domainMatch) {
+    console.log(`[Extract] 提取域名: ${domainMatch[0]}`);
     return domainMatch[0];
   }
   
-  // 方法3: 备用 - 从配置中提取
+  // 第6步：备用 - 从配置中提取
   return proxy.server || proxy.hostname || proxy.host || '';
 }
 

@@ -143,31 +143,164 @@ function ObjKA(i) {
 // IP地理位置缓存
 const ipGeoCache = {};
 
+// 内置IP段数据库（覆盖常用地区，离线可用）
+// 格式：[起始IP数值, 结束IP数值, 国家代码]
+const ipRangeDatabase = [
+  // 香港 (HK)
+  [0x2B000000, 0x2B0FFFFF, 'HK'], // 43.0.0.0 - 43.15.255.255
+  [0x2B0A0000, 0x2B0AFFFF, 'HK'], // 43.10.0.0 - 43.10.255.255
+  [0x2BAE0000, 0x2BAEFFFF, 'HK'], // 43.174.0.0 - 43.174.255.255
+  [0x7C3C0000, 0x7C3FFFFF, 'HK'], // 124.60.0.0 - 124.63.255.255
+  [0xCB000000, 0xCB00FFFF, 'HK'], // 203.0.0.0 - 203.0.255.255
+  [0xD20A0000, 0xD20AFFFF, 'HK'], // 210.10.0.0 - 210.10.255.255
+  
+  // 台湾 (TW)
+  [0x3C000000, 0x3CFFFFFF, 'TW'], // 60.0.0.0 - 60.255.255.255
+  [0x7C600000, 0x7C7FFFFF, 'TW'], // 124.96.0.0 - 124.127.255.255
+  [0xD3C00000, 0xD3FFFFFF, 'TW'], // 211.192.0.0 - 211.255.255.255
+  
+  // 日本 (JP)
+  [0x0E000000, 0x0EFFFFFF, 'JP'], // 14.0.0.0 - 14.255.255.255
+  [0x1B000000, 0x1BFFFFFF, 'JP'], // 27.0.0.0 - 27.255.255.255
+  [0x31000000, 0x31FFFFFF, 'JP'], // 49.0.0.0 - 49.255.255.255
+  [0x3E000000, 0x3EFFFFFF, 'JP'], // 62.0.0.0 - 62.255.255.255
+  [0x72000000, 0x72FFFFFF, 'JP'], // 114.0.0.0 - 114.255.255.255
+  [0x85000000, 0x85FFFFFF, 'JP'], // 133.0.0.0 - 133.255.255.255
+  
+  // 韩国 (KR)
+  [0x01000000, 0x01FFFFFF, 'KR'], // 1.0.0.0 - 1.255.255.255
+  [0x1C000000, 0x1CFFFFFF, 'KR'], // 28.0.0.0 - 28.255.255.255
+  [0x3A000000, 0x3AFFFFFF, 'KR'], // 58.0.0.0 - 58.255.255.255
+  [0x6E000000, 0x6EFFFFFF, 'KR'], // 110.0.0.0 - 110.255.255.255
+  [0xB9000000, 0xB9FFFFFF, 'KR'], // 185.0.0.0 - 185.255.255.255
+  
+  // 新加坡 (SG)
+  [0x08000000, 0x08FFFFFF, 'SG'], // 8.0.0.0 - 8.255.255.255
+  [0x2B5C0000, 0x2B5FFFFF, 'SG'], // 43.92.0.0 - 43.95.255.255
+  [0x67000000, 0x67FFFFFF, 'SG'], // 103.0.0.0 - 103.255.255.255
+  [0xAE000000, 0xAEFFFFFF, 'SG'], // 174.0.0.0 - 174.255.255.255
+  
+  // 美国 (US)
+  [0x03000000, 0x03FFFFFF, 'US'], // 3.0.0.0 - 3.255.255.255
+  [0x04000000, 0x04FFFFFF, 'US'], // 4.0.0.0 - 4.255.255.255
+  [0x08080808, 0x08080808, 'US'], // 8.8.8.8 (Google DNS)
+  [0x0C000000, 0x0CFFFFFF, 'US'], // 12.0.0.0 - 12.255.255.255
+  [0x12000000, 0x12FFFFFF, 'US'], // 18.0.0.0 - 18.255.255.255
+  [0x17000000, 0x17FFFFFF, 'US'], // 23.0.0.0 - 23.255.255.255
+  [0x22000000, 0x22FFFFFF, 'US'], // 34.0.0.0 - 34.255.255.255
+  [0x32000000, 0x32FFFFFF, 'US'], // 50.0.0.0 - 50.255.255.255
+  [0x42000000, 0x42FFFFFF, 'US'], // 66.0.0.0 - 66.255.255.255
+  [0x68000000, 0x68FFFFFF, 'US'], // 104.0.0.0 - 104.255.255.255
+  [0x9C000000, 0x9CFFFFFF, 'US'], // 156.0.0.0 - 156.255.255.255
+  
+  // 英国 (GB)
+  [0x02000000, 0x02FFFFFF, 'GB'], // 2.0.0.0 - 2.255.255.255
+  [0x05000000, 0x05FFFFFF, 'GB'], // 5.0.0.0 - 5.255.255.255
+  [0x50000000, 0x50FFFFFF, 'GB'], // 80.0.0.0 - 80.255.255.255
+  
+  // 德国 (DE)
+  [0x2E000000, 0x2EFFFFFF, 'DE'], // 46.0.0.0 - 46.255.255.255
+  [0x4E000000, 0x4EFFFFFF, 'DE'], // 78.0.0.0 - 78.255.255.255
+  
+  // 法国 (FR)
+  [0x25000000, 0x25FFFFFF, 'FR'], // 37.0.0.0 - 37.255.255.255
+  [0x4F000000, 0x4FFFFFFF, 'FR'], // 79.0.0.0 - 79.255.255.255
+  
+  // 俄罗斯 (RU)
+  [0x1F000000, 0x1FFFFFFF, 'RU'], // 31.0.0.0 - 31.255.255.255
+  [0x25000000, 0x25FFFFFF, 'RU'], // 37.0.0.0 - 37.255.255.255
+  [0x4F000000, 0x4FFFFFFF, 'RU'], // 79.0.0.0 - 79.255.255.255
+  [0x5E000000, 0x5EFFFFFF, 'RU'], // 94.0.0.0 - 94.255.255.255
+  
+  // 印度 (IN)
+  [0x0D000000, 0x0DFFFFFF, 'IN'], // 13.0.0.0 - 13.255.255.255
+  [0x1B000000, 0x1BFFFFFF, 'IN'], // 27.0.0.0 - 27.255.255.255
+  
+  // 澳大利亚 (AU)
+  [0x01000000, 0x01FFFFFF, 'AU'], // 1.0.0.0 - 1.255.255.255
+  [0x0B000000, 0x0BFFFFFF, 'AU'], // 11.0.0.0 - 11.255.255.255
+  
+  // 加拿大 (CA)
+  [0x18000000, 0x18FFFFFF, 'CA'], // 24.0.0.0 - 24.255.255.255
+  [0x40000000, 0x40FFFFFF, 'CA'], // 64.0.0.0 - 64.255.255.255
+];
+
+// IP字符串转数值
+function ipToNumber(ip) {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return 0;
+  return (parseInt(parts[0]) << 24) + (parseInt(parts[1]) << 16) + 
+         (parseInt(parts[2]) << 8) + parseInt(parts[3]);
+}
+
+// 通过IP段匹配国家（离线，速度快）
+function getCountryByIPRange(ip) {
+  const ipNum = ipToNumber(ip);
+  if (ipNum === 0) return null;
+  
+  // 二分查找或线性查找IP段
+  for (const [start, end, countryCode] of ipRangeDatabase) {
+    if (ipNum >= start && ipNum <= end) {
+      console.log(`[IPGeo-Offline] ✓ ${ip} -> ${countryCode} (IP段匹配)`);
+      return countryCode;
+    }
+  }
+  
+  return null;
+}
+
 // 提取节点的IP或域名
 function extractHost(proxy) {
   return proxy.server || proxy.hostname || proxy.host || '';
 }
 
-// 解析IP地理位置（多API备用方案）
+// 检查是否为IP地址
+function isIPAddress(str) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str);
+}
+
+// 解析IP地理位置（混合方案：离线优先 + 在线备用）
 async function getIPGeo(host) {
   if (!host) return null;
   
   // 检查缓存
   if (ipGeoCache[host]) {
-    console.log(`[IPGeo] 缓存命中: ${host}`);
+    console.log(`[IPGeo] 缓存命中: ${host} -> ${ipGeoCache[host].countryCode}`);
     return ipGeoCache[host];
   }
   
+  let ip = host;
+  
+  // 如果是域名，尝试DNS解析（仅在开启在线查询时）
+  if (!isIPAddress(host)) {
+    console.log(`[IPGeo] 检测到域名: ${host}，将使用在线查询`);
+    // 域名直接跳过离线IP段匹配，使用在线 API
+  } else {
+    // 方案1: 离线IP段匹配（最快，无需联网）
+    const countryCode = getCountryByIPRange(ip);
+    if (countryCode) {
+      const result = {
+        country: countryCodeMap[countryCode] || countryCode,
+        countryCode: countryCode
+      };
+      ipGeoCache[host] = result;
+      return result;
+    }
+    
+    console.log(`[IPGeo] IP段未匹配: ${ip}，尝试在线查询`);
+  }
+  
+  // 方案2: 在线 API查询（备用方案）
   // 检测$http是否可用
   const hasHttp = typeof $http !== 'undefined' && $http && typeof $http.get === 'function';
   if (!hasHttp) {
-    console.log('[IPGeo] 错误: $http.get 不可用，请检查Sub-Store版本');
+    console.log('[IPGeo] $http.get 不可用，跳过在线查询');
+    ipGeoCache[host] = null;
     return null;
   }
   
-  // 多个API备用方案（按优先级尝试）
+  // 多个API备用方案
   const apis = [
-    // 方案1: ipapi.co (国内可访问，支持HTTPS)
     {
       name: 'ipapi.co',
       url: `https://ipapi.co/${host}/json/`,
@@ -176,7 +309,6 @@ async function getIPGeo(host) {
         countryCode: data.country_code
       })
     },
-    // 方案2: ip-api.com (需要代理，但数据准确)
     {
       name: 'ip-api.com',
       url: `http://ip-api.com/json/${host}?fields=status,country,countryCode`,
@@ -184,51 +316,39 @@ async function getIPGeo(host) {
         country: data.country,
         countryCode: data.countryCode
       } : null
-    },
-    // 方案3: ipinfo.io (国内访问较慢但可用)
-    {
-      name: 'ipinfo.io',
-      url: `https://ipinfo.io/${host}/json`,
-      parse: (data) => ({
-        country: data.country_name || data.country,
-        countryCode: data.country
-      })
     }
   ];
   
   // 依次尝试每个API
   for (const api of apis) {
     try {
-      console.log(`[IPGeo] 尝试 ${api.name}: ${host}`);
+      console.log(`[IPGeo-Online] 尝试 ${api.name}: ${host}`);
       
       const response = await $http.get({
         url: api.url,
-        timeout: 10000 // 10秒超时
+        timeout: 10000
       });
       
-      // 检查响应
       if (!response || !response.body) {
-        console.log(`[IPGeo] ✗ ${api.name} 无响应`);
+        console.log(`[IPGeo-Online] ✗ ${api.name} 无响应`);
         continue;
       }
       
       const data = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
-      
       const result = api.parse(data);
+      
       if (result && result.countryCode) {
-        console.log(`[IPGeo] ✓ ${api.name} 成功: ${host} -> ${result.countryCode}`);
+        console.log(`[IPGeo-Online] ✓ ${api.name} 成功: ${host} -> ${result.countryCode}`);
         ipGeoCache[host] = result;
         return result;
-      } else {
-        console.log(`[IPGeo] ✗ ${api.name} 解析失败: 无效数据`);
       }
     } catch (error) {
-      console.log(`[IPGeo] ✗ ${api.name} 异常: ${error.message || error}`);
-      continue; // 尝试下一个API
+      console.log(`[IPGeo-Online] ✗ ${api.name} 异常: ${error.message || error}`);
+      continue;
     }
   }
   
-  console.log(`[IPGeo] ✗ 所有API均失败: ${host}`);
+  console.log(`[IPGeo] ✗ 无法获取位置: ${host}`);
   ipGeoCache[host] = null;
   return null;
 }
@@ -278,41 +398,52 @@ async function operator(pro) {
 
   // 如果启用IP地理位置解析，批量查询所有节点
   if (ipgeo) {
-    console.log('[IPGeo] 开始解析节点IP地理位置...');
-    console.log('[IPGeo] 提示: 国内网络建议使用代理，或等待ipapi.co响应');
+    console.log('[IPGeo] ===========================================');
+    console.log('[IPGeo] 开始解析节点IP地理位置');
+    console.log('[IPGeo] 模式: 离线IP段匹配优先 + 在线查询备用');
     console.log(`[IPGeo] 总节点数: ${pro.length}`);
+    console.log('[IPGeo] ===========================================');
     
-    let successCount = 0;
-    let failCount = 0;
+    let offlineSuccess = 0;  // 离线匹配成功
+    let onlineSuccess = 0;   // 在线查询成功
+    let failCount = 0;       // 完全失败
     
-    // 串行处理，避免API限流（更稳定）
     for (const e of pro) {
       const host = extractHost(e);
       if (host) {
         const geoInfo = await getIPGeo(host);
         if (geoInfo && geoInfo.countryCode) {
-          // 将国家代码添加到节点名中，供后续匹配
           const countryName = countryCodeMap[geoInfo.countryCode] || geoInfo.country;
           e._geoCountry = countryName;
           e._geoCode = geoInfo.countryCode;
-          // 将地理信息添加到节点名前缀，方便后续匹配
           e.name = `${countryName} ${e.name}`;
-          console.log(`[IPGeo] ✓ ${host} -> ${geoInfo.countryCode} (${countryName})`);
-          successCount++;
+          
+          // 统计是离线还是在线
+          if (isIPAddress(host) && getCountryByIPRange(host)) {
+            offlineSuccess++;
+          } else {
+            onlineSuccess++;
+          }
         } else {
-          console.log(`[IPGeo] ✗ 跳过: ${host} (无法获取位置信息)`);
+          console.log(`[IPGeo] ✗ 跳过: ${host}`);
           failCount++;
         }
       }
     }
     
-    console.log(`[IPGeo] 解析完成! 成功:${successCount} 失败:${failCount}`);
+    console.log('[IPGeo] ===========================================');
+    console.log(`[IPGeo] 解析完成!`);
+    console.log(`[IPGeo] 离线IP段匹配: ${offlineSuccess} 个`);
+    console.log(`[IPGeo] 在线查询成功: ${onlineSuccess} 个`);
+    console.log(`[IPGeo] 无法识别: ${failCount} 个`);
+    console.log(`[IPGeo] 总成功率: ${((offlineSuccess + onlineSuccess) / pro.length * 100).toFixed(1)}%`);
+    console.log('[IPGeo] ===========================================');
     
-    // 如果全部失败，给出明确提示
-    if (successCount === 0 && failCount > 0) {
-      console.log('[IPGeo] ⚠️ 警告: 所有节点IP解析均失败！');
-      console.log('[IPGeo] 可能原因: 1.网络问题 2.API被墙 3.需要开启代理');
-      console.log('[IPGeo] 建议: 开启代理后重试，或使用国外网络');
+    if (offlineSuccess + onlineSuccess === 0 && failCount > 0) {
+      console.log('[IPGeo] ⚠️ 警告: 所有节点均未识别！');
+      console.log('[IPGeo] 可能原因:');
+      console.log('[IPGeo]  1. IP段数据库未覆盖这些IP（请反馈以便添加）');
+      console.log('[IPGeo]  2. 域名节点且在线查询失败（需开启代理）');
     }
   }
 

@@ -147,9 +147,7 @@ const ipGeoCache = {};
 // 格式：[起始IP数值, 结束IP数值, 国家代码]
 const ipRangeDatabase = [
   // 香港 (HK)
-  [0x2B000000, 0x2B0FFFFF, 'HK'], // 43.0.0.0 - 43.15.255.255
-  [0x2B0A0000, 0x2B0AFFFF, 'HK'], // 43.10.0.0 - 43.10.255.255
-  [0x2BAE0000, 0x2BAEFFFF, 'HK'], // 43.174.0.0 - 43.174.255.255
+  [0x2B000000, 0x2BFFFFFF, 'HK'], // 43.0.0.0 - 43.255.255.255 (扩大范围)
   [0x7C3C0000, 0x7C3FFFFF, 'HK'], // 124.60.0.0 - 124.63.255.255
   [0xCB000000, 0xCB00FFFF, 'HK'], // 203.0.0.0 - 203.0.255.255
   [0xD20A0000, 0xD20AFFFF, 'HK'], // 210.10.0.0 - 210.10.255.255
@@ -178,7 +176,7 @@ const ipRangeDatabase = [
   [0x08000000, 0x08FFFFFF, 'SG'], // 8.0.0.0 - 8.255.255.255
   [0x2B5C0000, 0x2B5FFFFF, 'SG'], // 43.92.0.0 - 43.95.255.255
   [0x67000000, 0x67FFFFFF, 'SG'], // 103.0.0.0 - 103.255.255.255
-  [0xAE000000, 0xAEFFFFFF, 'SG'], // 174.0.0.0 - 174.255.255.255
+  [0xAC000000, 0xACFFFFFF, 'SG'], // 172.0.0.0 - 172.255.255.255
   
   // 美国 (US)
   [0x03000000, 0x03FFFFFF, 'US'], // 3.0.0.0 - 3.255.255.255
@@ -191,7 +189,11 @@ const ipRangeDatabase = [
   [0x32000000, 0x32FFFFFF, 'US'], // 50.0.0.0 - 50.255.255.255
   [0x42000000, 0x42FFFFFF, 'US'], // 66.0.0.0 - 66.255.255.255
   [0x68000000, 0x68FFFFFF, 'US'], // 104.0.0.0 - 104.255.255.255
+  [0x6C000000, 0x6CFFFFFF, 'US'], // 108.0.0.0 - 108.255.255.255
+  [0x8D000000, 0x8DFFFFFF, 'US'], // 141.0.0.0 - 141.255.255.255
   [0x9C000000, 0x9CFFFFFF, 'US'], // 156.0.0.0 - 156.255.255.255
+  [0xA2000000, 0xA2FFFFFF, 'US'], // 162.0.0.0 - 162.255.255.255
+  [0xC6000000, 0xC6FFFFFF, 'US'], // 198.0.0.0 - 198.255.255.255
   
   // 英国 (GB)
   [0x02000000, 0x02FFFFFF, 'GB'], // 2.0.0.0 - 2.255.255.255
@@ -251,12 +253,31 @@ function getCountryByIPRange(ip) {
 
 // 提取节点的IP或域名
 function extractHost(proxy) {
+  // 优先从nodeName中提取IP（处理 "40 - 198.41.209.120" 这种格式）
+  if (proxy.name) {
+    // 匹配节点名中的IP地址
+    const ipMatch = proxy.name.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+    if (ipMatch) {
+      return ipMatch[1];
+    }
+    // 匹配节点名中的域名（简单匹配）
+    const domainMatch = proxy.name.match(/([a-z0-9-]+\.[a-z0-9-.]+)/i);
+    if (domainMatch) {
+      return domainMatch[1];
+    }
+  }
+  // 备用：从代理配置中提取
   return proxy.server || proxy.hostname || proxy.host || '';
 }
 
 // 检查是否为IP地址
 function isIPAddress(str) {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(str);
+}
+
+// 检查是否为有效的域名
+function isDomain(str) {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(str);
 }
 
 // 解析IP地理位置（混合方案：离线优先 + 在线备用）
@@ -404,21 +425,48 @@ async function operator(pro) {
     console.log(`[IPGeo] 总节点数: ${pro.length}`);
     console.log('[IPGeo] ===========================================');
     
-    let offlineSuccess = 0;  // 离线匹配成功
-    let onlineSuccess = 0;   // 在线查询成功
-    let failCount = 0;       // 完全失败
+    let offlineSuccess = 0;
+    let onlineSuccess = 0;
+    let failCount = 0;
+    let filteredCount = 0; // 被过滤的节点
     
-    for (const e of pro) {
+    for (let i = pro.length - 1; i >= 0; i--) {
+      const e = pro[i];
       const host = extractHost(e);
+      
+      // 检查是否为有效的IP或域名
+      if (!host || (!isIPAddress(host) && !isDomain(host))) {
+        console.log(`[IPGeo] ✗ 过滤无效节点: "${e.name}" (非IP/域名)`);
+        pro.splice(i, 1); // 移除节点
+        filteredCount++;
+        continue;
+      }
+      
       if (host) {
+        // 保存原始节点名，用于提取关键词
+        const originalName = e.name;
+        
         const geoInfo = await getIPGeo(host);
         if (geoInfo && geoInfo.countryCode) {
           const countryName = countryCodeMap[geoInfo.countryCode] || geoInfo.country;
           e._geoCountry = countryName;
           e._geoCode = geoInfo.countryCode;
-          e.name = `${countryName} ${e.name}`;
           
-          // 统计是离线还是在线
+          // 提取关键词（从原始节点名）
+          let keywords = '';
+          if (BLKEY) {
+            const matched = BLKEYS.filter(keyword => {
+              const key = keyword.includes('>') ? keyword.split('>')[0] : keyword;
+              return originalName.includes(key);
+            });
+            if (matched.length > 0) {
+              keywords = matched.map(k => k.includes('>') ? k.split('>')[1] : k).join(' ');
+            }
+          }
+          
+          // 重新组合节点名：国家 + 关键词
+          e.name = keywords ? `${countryName} ${keywords}` : countryName;
+          
           if (isIPAddress(host) && getCountryByIPRange(host)) {
             offlineSuccess++;
           } else {
@@ -436,7 +484,8 @@ async function operator(pro) {
     console.log(`[IPGeo] 离线IP段匹配: ${offlineSuccess} 个`);
     console.log(`[IPGeo] 在线查询成功: ${onlineSuccess} 个`);
     console.log(`[IPGeo] 无法识别: ${failCount} 个`);
-    console.log(`[IPGeo] 总成功率: ${((offlineSuccess + onlineSuccess) / pro.length * 100).toFixed(1)}%`);
+    console.log(`[IPGeo] 过滤无效节点: ${filteredCount} 个`);
+    console.log(`[IPGeo] 总成功率: ${((offlineSuccess + onlineSuccess) / (pro.length + filteredCount) * 100).toFixed(1)}%`);
     console.log('[IPGeo] ===========================================');
     
     if (offlineSuccess + onlineSuccess === 0 && failCount > 0) {

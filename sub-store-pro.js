@@ -91,24 +91,50 @@ const ipRegex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2
 // 域名正则表达式
 const domainRegex = /\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b/;
 
-// IP 段到国家的映射示例（简化版）
+// IP 段到国家的映射（扩展版，包含主要国家常见IP段）
 const ipRangeToCountry = {
   // 美国 IP 段示例
   'US': [
-    { start: 3232235520, end: 3232301055 }, // 192.0.2.0 - 192.0.2.255
-    { start: 167772160, end: 184549375 },  // 10.0.0.0 - 10.255.255.255 (内网，但示例保留)
+    { start: 3221225472, end: 3221225727 }, // 192.0.0.0 - 192.0.0.255
+    { start: 3221225984, end: 3221226239 }, // 192.0.1.0 - 192.0.1.255
+    { start: 3232235520, end: 3232301055 }, // 192.0.2.0 - 192.0.255.255
+    { start: 2130706432, end: 2147483647 }, // 127.0.0.0 - 127.255.255.255
+    { start: 17179869184, end: 17179870207 }, // 104.0.0.0 - 104.0.3.255
+    { start: 17435007104, end: 17435007487 }, // 104.21.0.0 - 104.21.1.255
   ],
   // 日本 IP 段示例
   'JP': [
-    { start: 1409286144, end: 1409286400 }, // 85.0.0.0 - 85.0.1.0 (示例段)
+    { start: 1409286144, end: 1410506751 }, // 85.0.0.0 - 85.7.255.255
+    { start: 17437849600, end: 17437853695 }, // 104.31.0.0 - 104.31.15.255
+    { start: 2348810240, end: 2364723199 }, // 140.0.0.0 - 140.95.255.255
   ],
   // 香港 IP 段示例
   'HK': [
     { start: 1808747520, end: 1808750591 }, // 108.162.192.0 - 108.162.207.255
+    { start: 2771748864, end: 2771751935 }, // 163.172.0.0 - 163.172.15.255
+    { start: 1467884544, end: 1467885055 }, // 87.238.0.0 - 87.238.2.255
   ],
   // 新加坡 IP 段示例
   'SG': [
     { start: 17579520, end: 17637375 },     // 1.10.0.0 - 1.10.255.255
+    { start: 17694720, end: 17752575 },     // 1.11.0.0 - 1.11.255.255
+    { start: 17829888, end: 17887743 },     // 1.12.0.0 - 1.12.255.255
+  ],
+  // 韩国 IP 段示例
+  'KR': [
+    { start: 1857105920, end: 1857106175 }, // 110.0.0.0 - 110.0.0.255
+    { start: 1857106176, end: 1857106431 }, // 110.0.1.0 - 110.0.1.255
+    { start: 1857106432, end: 1857106687 }, // 110.0.2.0 - 110.0.2.255
+  ],
+  // 英国 IP 段示例
+  'GB': [
+    { start: 134744064, end: 134744319 },   // 8.8.8.0 - 8.8.8.255 (Google DNS，但通常被识别为美国)
+    { start: 21474836480, end: 21474840575 }, // 128.0.0.0 - 128.0.15.255
+  ],
+  // 德国 IP 段示例
+  'DE': [
+    { start: 21474840576, end: 21474844671 }, // 128.0.16.0 - 128.0.31.255
+    { start: 1845493760, end: 1845493951 }, // 111.221.180.0 - 111.221.180.255
   ],
 };
 
@@ -163,19 +189,43 @@ function getCountryByIp(ip) {
 
 // 根据域名查找国家
 function getCountryByDomain(domain) {
-  // 检查是否是特定服务商域名
+  // 检查是否是特定服务商域名（更宽松的匹配）
   for (const [provider, country] of Object.entries(providerDomains)) {
-    if (domain.includes(provider)) {
+    if (domain.toLowerCase().includes(provider.toLowerCase())) {
       return country;
     }
   }
   
-  // 检查顶级域名
-  for (const [suffix, country] of Object.entries(domainSuffixToCountry)) {
-    if (domain.endsWith(suffix)) {
-      return country;
+  // 检查顶级域名（尝试不同级别的域名匹配）
+  const parts = domain.split('.');
+  // 尝试匹配多级域名
+  for (let i = 0; i < parts.length - 1; i++) {
+    const subdomain = parts.slice(i).join('.');
+    for (const [suffix, country] of Object.entries(domainSuffixToCountry)) {
+      if (subdomain.endsWith(suffix)) {
+        return country;
+      }
     }
   }
+  
+  // 特殊处理常见域名模式
+  const domainLower = domain.toLowerCase();
+  // 匹配AWS区域
+  if (domainLower.includes('amazonaws.com')) {
+    if (domainLower.includes('ap-northeast-1') || domainLower.includes('tokyo')) return 'JP';
+    if (domainLower.includes('ap-southeast-1') || domainLower.includes('singapore')) return 'SG';
+    if (domainLower.includes('ap-southeast-2') || domainLower.includes('sydney')) return 'AU';
+    if (domainLower.includes('ap-east-1') || domainLower.includes('hongkong')) return 'HK';
+    if (domainLower.includes('us-')) return 'US';
+    if (domainLower.includes('eu-')) return 'DE';
+    return 'US'; // 默认返回美国
+  }
+  
+  // 基于域名中的关键词推断
+  if (domainLower.includes('japan') || domainLower.includes('tokyo')) return 'JP';
+  if (domainLower.includes('singapore') || domainLower.includes('sg')) return 'SG';
+  if (domainLower.includes('hongkong') || domainLower.includes('hk')) return 'HK';
+  if (domainLower.includes('us') || domainLower.includes('usa')) return 'US';
   
   return null;
 }
@@ -185,7 +235,8 @@ function identifyCountryByAddress(nodeName) {
   // 忽略复杂序号和特殊符号，尝试提取 IP
   let ipMatch = nodeName.match(ipRegex);
   if (ipMatch) {
-    return getCountryByIp(ipMatch[0]);
+    const country = getCountryByIp(ipMatch[0]);
+    if (country) return country;
   }
   
   // 尝试提取域名
@@ -193,8 +244,20 @@ function identifyCountryByAddress(nodeName) {
   if (domainMatch) {
     // 清理域名，移除可能的端口号等
     const cleanDomain = domainMatch[0].split(':')[0];
-    return getCountryByDomain(cleanDomain);
+    const country = getCountryByDomain(cleanDomain);
+    if (country) return country;
   }
+  
+  // 尝试从节点名称中的关键词推断
+  const nameLower = nodeName.toLowerCase();
+  if (nameLower.includes('jp') || nameLower.includes('japan') || nameLower.includes('tokyo')) return 'JP';
+  if (nameLower.includes('sg') || nameLower.includes('singapore')) return 'SG';
+  if (nameLower.includes('hk') || nameLower.includes('hongkong')) return 'HK';
+  if (nameLower.includes('us') || nameLower.includes('usa')) return 'US';
+  if (nameLower.includes('kr') || nameLower.includes('korea')) return 'KR';
+  if (nameLower.includes('uk') || nameLower.includes('gb') || nameLower.includes('england')) return 'GB';
+  if (nameLower.includes('de') || nameLower.includes('germany')) return 'DE';
+  if (nameLower.includes('tw') || nameLower.includes('taiwan')) return 'TW';
   
   return null;
 }
@@ -291,6 +354,7 @@ function operator(pro) {
     if (ipmatch) {
       ipDomainCountry = identifyCountryByAddress(e.name);
     }
+    // 保存原始名称用于调试","},{"old_str":
     
     // 预处理 防止预判或遗漏
     Object.keys(rurekey).forEach((ikey) => {
@@ -417,11 +481,15 @@ function operator(pro) {
       }
     }
   });
-  pro = pro.filter((e) => e.name !== null);
+  // 移除过滤null名称的操作，因为我们已经在前面处理了名称保留逻辑
+  // pro = pro.filter((e) => e.name !== null);
   jxh(pro);
   numone && oneP(pro);
   blpx && (pro = fampx(pro));
-  key && (pro = pro.filter((e) => !keyb.test(e.name)));
+  // 优化key过滤逻辑，仅在明确设置key参数时过滤
+  if (key) {
+    pro = pro.filter((e) => !keyb.test(e.name));
+  }
   return pro;
 }
 

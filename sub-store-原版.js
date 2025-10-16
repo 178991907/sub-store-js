@@ -154,7 +154,15 @@ async function getIPGeo(host) {
   
   // 检查缓存
   if (ipGeoCache[host]) {
+    console.log(`[IPGeo] 缓存命中: ${host}`);
     return ipGeoCache[host];
+  }
+  
+  // 检测$http是否可用
+  const hasHttp = typeof $http !== 'undefined' && $http && typeof $http.get === 'function';
+  if (!hasHttp) {
+    console.log('[IPGeo] 错误: $http.get 不可用，请检查Sub-Store版本');
+    return null;
   }
   
   // 多个API备用方案（按优先级尝试）
@@ -192,7 +200,18 @@ async function getIPGeo(host) {
   for (const api of apis) {
     try {
       console.log(`[IPGeo] 尝试 ${api.name}: ${host}`);
-      const response = await $http.get(api.url);
+      
+      const response = await $http.get({
+        url: api.url,
+        timeout: 10000 // 10秒超时
+      });
+      
+      // 检查响应
+      if (!response || !response.body) {
+        console.log(`[IPGeo] ✗ ${api.name} 无响应`);
+        continue;
+      }
+      
       const data = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
       
       const result = api.parse(data);
@@ -200,14 +219,16 @@ async function getIPGeo(host) {
         console.log(`[IPGeo] ✓ ${api.name} 成功: ${host} -> ${result.countryCode}`);
         ipGeoCache[host] = result;
         return result;
+      } else {
+        console.log(`[IPGeo] ✗ ${api.name} 解析失败: 无效数据`);
       }
     } catch (error) {
-      console.log(`[IPGeo] ✗ ${api.name} 失败: ${error.message}`);
+      console.log(`[IPGeo] ✗ ${api.name} 异常: ${error.message || error}`);
       continue; // 尝试下一个API
     }
   }
   
-  console.log(`[IPGeo] 所有API均失败: ${host}`);
+  console.log(`[IPGeo] ✗ 所有API均失败: ${host}`);
   ipGeoCache[host] = null;
   return null;
 }
@@ -259,6 +280,10 @@ async function operator(pro) {
   if (ipgeo) {
     console.log('[IPGeo] 开始解析节点IP地理位置...');
     console.log('[IPGeo] 提示: 国内网络建议使用代理，或等待ipapi.co响应');
+    console.log(`[IPGeo] 总节点数: ${pro.length}`);
+    
+    let successCount = 0;
+    let failCount = 0;
     
     // 串行处理，避免API限流（更稳定）
     for (const e of pro) {
@@ -272,14 +297,23 @@ async function operator(pro) {
           e._geoCode = geoInfo.countryCode;
           // 将地理信息添加到节点名前缀，方便后续匹配
           e.name = `${countryName} ${e.name}`;
-          console.log(`[IPGeo] ${host} -> ${geoInfo.countryCode} (${countryName})`);
+          console.log(`[IPGeo] ✓ ${host} -> ${geoInfo.countryCode} (${countryName})`);
+          successCount++;
         } else {
-          console.log(`[IPGeo] 跳过: ${host} (无法获取位置信息)`);
+          console.log(`[IPGeo] ✗ 跳过: ${host} (无法获取位置信息)`);
+          failCount++;
         }
       }
     }
     
-    console.log('[IPGeo] 解析完成!');
+    console.log(`[IPGeo] 解析完成! 成功:${successCount} 失败:${failCount}`);
+    
+    // 如果全部失败，给出明确提示
+    if (successCount === 0 && failCount > 0) {
+      console.log('[IPGeo] ⚠️ 警告: 所有节点IP解析均失败！');
+      console.log('[IPGeo] 可能原因: 1.网络问题 2.API被墙 3.需要开启代理');
+      console.log('[IPGeo] 建议: 开启代理后重试，或使用国外网络');
+    }
   }
 
   pro.forEach((e) => {

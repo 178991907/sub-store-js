@@ -1,98 +1,149 @@
-// V15 - Final Graduation Version (with Mixed Separator Logic)
+// V-Pro 1.0 - Professional Renaming Script Framework
 function operator(proxies, $arguments) {
-    // --- 默认配置 (当URL中未提供参数时使用) ---
+    // --- 默认配置 ---
     const defaultConfig = {
-        customText: '',      // 自定义文字内容
-        flag: true,          // 是否显示旗帜
-        out:  'zh',          // 地区名称语言: 'zh' 或 'en'
-        enableNumbering: true, // 是否开启编号
-        separator: ' ',      // 自定义分隔符, 默认为空格
-        keepUnidentified: false 
+        // 输入识别
+        in: 'auto',   // auto, zh, en, flag, quan
+        // 输出格式
+        out: 'zh',    // zh, en, flag, quan
+        // 国旗
+        flag: false,
+        // 前缀
+        name: '',     // 前缀内容
+        nf: false,    // 前缀是否前置 (name first)
+        // 分隔符
+        fgf: ' ',     // 旗帜/前缀 与 国家地区 之间的分隔符
+        sn: ' ',      // 国家地区 与 序号 之间的分隔符
+        // 编号
+        one: false,   // (暂未实现) 清理单节点地区的序号
+        // 保留与清理
+        nm: false,    // (no match) 保留未匹配的节点
     };
-
-    // --- 核心逻辑: 将URL传入的参数与默认配置合并 ---
-    const config = { ...defaultConfig, ...$arguments };
     
-    // 将可能为字符串的布尔值转为真正的布尔值
+    // --- 参数别名处理与合并 ---
+    const params = { ...$arguments };
+    const aliasMap = {
+        'cn': 'zh', 'us': 'en', 'gq': 'flag',
+        '保留': 'nm', '不匹配': 'nm',
+        '前缀': 'name'
+    };
+    for (const key in aliasMap) {
+        if (params[key] !== undefined) {
+            params[aliasMap[key]] = params[key];
+            delete params[key];
+        }
+    }
+    const config = { ...defaultConfig, ...params };
+    
+    // 布尔值转换
     config.flag = config.flag === 'true' || config.flag === true;
-    config.enableNumbering = config.enableNumbering === 'true' || config.enableNumbering === true;
-    config.keepUnidentified = config.keepUnidentified === 'true' || config.keepUnidentified === true;
+    config.nf = config.nf === 'true' || config.nf === true;
+    config.nm = config.nm === 'true' || config.nm === true;
+    config.one = config.one === 'true' || config.one === true;
 
-    // 自定义域名映射规则
-    const customDomainMap = {
-        'yd': 'HK', 'dx': 'HK', 'lt': 'HK', 'cm': 'CM', 'wto': 'US', 
-        'visasg': 'SG', 'openai': 'US', 'shopify': 'US', 'bp': 'US', 'qms': 'US', 'sy': 'US'
-    };
-
-    // --- 脚本核心代码 (无需修改以下内容) ---
+    // --- 核心数据 ---
     const countryData = [
-        { code: 'HK', flag: '🇭🇰', en: 'Hong Kong', zh: '香港' }, { code: 'TW', flag: '🇹🇼', en: 'Taiwan', zh: '台湾' },
-        { code: 'JP', flag: '🇯🇵', en: 'Japan', zh: '日本' }, { code: 'KR', flag: '🇰🇷', en: 'Korea', zh: '韩国' },
-        { code: 'SG', flag: '🇸🇬', en: 'Singapore', zh: '新加坡' }, { code: 'US', flag: '🇺🇸', en: 'United States', zh: '美国' },
-        { code: 'GB', flag: '🇬🇧', en: 'United Kingdom', zh: '英国' }, { code: 'DE', flag: '🇩🇪', en: 'Germany', zh: '德国' },
-        { code: 'FR', flag: '🇫🇷', en: 'France', zh: '法国' }, { code: 'CA', flag: '🇨🇦', en: 'Canada', zh: '加拿大' },
-        { code: 'AU', flag: '🇦🇺', en: 'Australia', zh: '澳大利亚' }, { code: 'RU', flag: '🇷🇺', en: 'Russia', zh: '俄罗斯' },
-        { code: 'IN', flag: '🇮🇳', en: 'India', zh: '印度' }, { code: 'BR', flag: '🇧🇷', en: 'Brazil', zh: '巴西' },
-        { code: 'NL', flag: '🇳🇱', en: 'Netherlands', zh: '荷兰' }, { code: 'IT', flag: '🇮🇹', en: 'Italy', zh: '意大利' },
-        { code: 'CH', flag: '🇨🇭', en: 'Switzerland', zh: '瑞士' }, { code: 'SE', flag: '🇸🇪', en: 'Sweden', zh: '瑞典' },
-        { code: 'TR', flag: '🇹🇷', en: 'Turkey', zh: '土耳其' }, { code: 'VN', flag: '🇻🇳', en: 'Vietnam', zh: '越南' },
-        { code: 'TH', flag: '🇹🇭', en: 'Thailand', zh: '泰国' }, { code: 'MY', flag: '🇲🇾', en: 'Malaysia', zh: '马来西亚' },
-        { code: 'ID', flag: '🇮🇩', en: 'Indonesia', zh: '印尼' }, { code: 'PH', flag: '🇵🇭', en: 'Philippines', zh: '菲律宾' },
-        { code: 'AE', flag: '🇦🇪', en: 'United Arab Emirates', zh: '阿联酋' }, { code: 'ZA', flag: '🇿🇦', en: 'South Africa', zh: '南非' },
-        { code: 'AR', flag: '🇦🇷', en: 'Argentina', zh: '阿根廷' }, { code: 'ES', flag: '🇪🇸', en: 'Spain', zh: '西班牙' },
-        { code: 'PL', flag: '🇵🇱', en: 'Poland', zh: '波兰' }, { code: 'IE', flag: '🇮🇪', en: 'Ireland', zh: '爱尔兰' },
-        { code: 'RO', flag: '🇷🇴', en: 'Romania', zh: '罗马尼亚' }, { code: 'LT', flag: '🇱🇹', en: 'Lithuania', zh: '立陶宛' },
-        { code: 'CM', flag: '🇨🇲', en: 'Cameroon', zh: '喀麦隆' }
+        { code: 'HK', flag: '🇭🇰', en: 'HK', zh: '香港', quan: 'Hong Kong' },
+        { code: 'TW', flag: '🇹🇼', en: 'TW', zh: '台湾', quan: 'Taiwan' },
+        { code: 'JP', flag: '🇯🇵', en: 'JP', zh: '日本', quan: 'Japan' },
+        { code: 'KR', flag: '🇰🇷', en: 'KR', zh: '韩国', quan: 'Korea' },
+        { code: 'SG', flag: '🇸🇬', en: 'SG', zh: '新加坡', quan: 'Singapore' },
+        { code: 'US', flag: '🇺🇸', en: 'US', zh: '美国', quan: 'United States' },
+        { code: 'GB', flag: '🇬🇧', en: 'GB', zh: '英国', quan: 'United Kingdom' },
+        { code: 'DE', flag: '🇩🇪', en: 'DE', zh: '德国', quan: 'Germany' },
+        { code: 'FR', flag: '🇫🇷', en: 'FR', zh: '法国', quan: 'France' },
+        { code: 'CA', flag: '🇨🇦', en: 'CA', zh: '加拿大', quan: 'Canada' },
+        { code: 'AU', flag: '🇦🇺', en: 'AU', zh: '澳大利亚', quan: 'Australia' },
+        { code: 'RU', flag: '🇷🇺', en: 'RU', zh: '俄罗斯', quan: 'Russia' },
+        // ... 您可以继续添加更多国家
     ];
-    const ipDB = [ { start: 1753403392, end: 1753403647, code: 'HK' }, { start: 3232301312, end: 3232301567, code: 'TW' } ];
-    const counters = {};
-    const getCountryByCode = (code) => countryData.find(c => c.code === code);
-    const getRegionInfo = (server) => {
-        const ipMatch = server.match(/\d{1,3}(\.\d{1,3}){3}/);
-        if (ipMatch) {
-            const cleanIP = ipMatch[0];
-            const ipNum = cleanIP.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
-            const record = ipDB.find(r => ipNum >= r.start && ipNum <= r.end);
-            return record ? getCountryByCode(record.code) : getCountryByCode('US');
-        }
-        const parts = server.split('.');
-        for (const part of parts) { if (customDomainMap[part]) return getCountryByCode(customDomainMap[part]); }
-        return null;
+
+    const countryMatchers = {};
+    countryData.forEach(c => {
+        countryMatchers[c.zh] = c.code;
+        countryMatchers[c.en] = c.code;
+        countryMatchers[c.flag] = c.code;
+        countryMatchers[c.quan] = c.code;
+        // 添加不带空格的中文匹配，如 "日本"
+        countryMatchers[c.zh.replace(/\s+/g, '')] = c.code;
+    });
+    
+    // 正则表达式，用于匹配各种国家/地区名称
+    const regex = {
+        zh: new RegExp(`(?<zh>${countryData.map(c => c.zh.replace(/\s+/g, '')).join('|')})`),
+        en: new RegExp(`\\b(?<en>${countryData.map(c => c.en).join('|')})\\b`, 'i'),
+        flag: new RegExp(`(?<flag>${countryData.map(c => c.flag).join('|')})`),
+        quan: new RegExp(`(?<quan>${countryData.map(c => c.quan).join('|')})`, 'i')
     };
+
+    const counters = {};
+
     const newProxies = proxies.map(p => {
-        const cleanServer = p.server.split(':')[0].toLowerCase();
-        const regionInfo = getRegionInfo(cleanServer);
-        if (regionInfo) {
-            // --- 【核心命名逻辑】分段拼接 ---
+        let nodeName = p.name;
+        let countryCode = null;
 
-            // 1. 拼接基础部分 (旗帜 + 地区名), 强制使用空格
-            const baseParts = [];
-            if (config.flag) baseParts.push(regionInfo.flag);
-            const regionName = config.out === 'zh' ? regionInfo.zh : regionInfo.en;
-            baseParts.push(regionName);
-            const baseName = baseParts.join(' '); // 固定使用空格
-
-            // 2. 收集可选的附加部分
-            const additionalParts = [];
-            if (config.customText) {
-                additionalParts.push(config.customText);
-            }
-            if (config.enableNumbering) {
-                counters[regionInfo.code] = (counters[regionInfo.code] || 0) + 1;
-                additionalParts.push(String(counters[regionInfo.code]).padStart(2, '0'));
-            }
-
-            // 3. 组合最终名称
-            let finalName = baseName;
-            if (additionalParts.length > 0) {
-                // 只有当存在附加部分时, 才使用 separator 连接它们
-                finalName += config.separator + additionalParts.join(config.separator);
-            }
+        // --- 1. 识别国家/地区 ---
+        const findCountryCode = (name) => {
+            const priority = config.in === 'auto' 
+                ? ['zh', 'flag', 'quan', 'en'] 
+                : [config.in];
             
-            p.name = finalName;
-            return p;
+            for (const type of priority) {
+                const match = name.match(regex[type]);
+                if (match) {
+                    const key = match.groups[type];
+                    // 对于英文全称和缩写，需要找到对应的 code
+                    if (type === 'en' || type === 'quan') {
+                        const foundCountry = countryData.find(c => c.en.toLowerCase() === key.toLowerCase() || c.quan.toLowerCase() === key.toLowerCase());
+                        if (foundCountry) return foundCountry.code;
+                    }
+                    return countryMatchers[key];
+                }
+            }
+            return null;
+        };
+        
+        countryCode = findCountryCode(nodeName);
+
+        // 如果未识别到，根据nm参数决定是否保留
+        if (!countryCode) {
+            return config.nm ? p : null;
         }
-        return config.keepUnidentified ? p : null;
+
+        // --- 2. 生成新名称 ---
+        const countryInfo = countryData.find(c => c.code === countryCode);
+        counters[countryCode] = (counters[countryCode] || 0) + 1;
+        const number = String(counters[countryCode]).padStart(2, '0');
+
+        const outputNameMap = {
+            zh: countryInfo.zh,
+            en: countryInfo.en,
+            flag: countryInfo.flag,
+            quan: countryInfo.quan
+        };
+        const regionName = outputNameMap[config.out] || countryInfo.zh;
+
+        // --- 3. 组合最终名称 ---
+        const parts = [];
+        const prefixPart = [];
+        const mainPart = [regionName];
+        const suffixPart = [number];
+
+        if (config.flag) prefixPart.push(countryInfo.flag);
+        if (config.name && !config.nf) prefixPart.push(config.name);
+        
+        let finalName = "";
+
+        if (config.nf && config.name) { // 前缀置于最前
+            finalName = [config.name, ...prefixPart, ...mainPart].join(config.fgf) + config.sn + suffixPart.join(config.sn);
+        } else { // 正常顺序
+            finalName = [...prefixPart, ...mainPart].join(config.fgf) + config.sn + suffixPart.join(config.sn);
+        }
+        
+        p.name = finalName.trim().replace(/\s+/g, ' '); // 清理多余空格
+        return p;
+
     }).filter(p => p !== null);
-    return newProxies.length > 0 ? newProxies : proxies;
+
+    return newProxies.length > 0 ? newProxies : (config.nm ? proxies : []);
 }

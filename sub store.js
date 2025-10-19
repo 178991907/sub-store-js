@@ -9,12 +9,11 @@ async function operator(proxies, $arguments) {
         separator: ' ',      // 自定义分隔符
         keepUnidentified: false, // 是否保留未识别地区节点
         
-        // --- 模式一：读取 Sub-Store 内置数据 (推荐, 速度快) ---
-        // 请通过查看节点 JSON 信息, 找到正确的键名并填入 URL 参数
-        ipApiKey: '',       // 存放IP信息对象的父键名, e.g., 'geoip'
-        countryCodeKey: '', // 存放国家代码的子键名, e.g., 'country_code'
+        // --- 模式一：读取 Sub-Store 内置数据 ---
+        ipApiKey: '',       // (此路不通, 忽略)
+        countryCodeKey: '', // (此路不通, 忽略)
         
-        // --- 模式二：启用脚本自己的后备 API 查询 (当模式一无效时使用) ---
+        // --- 模式二：启用脚本自己的后备 API 查询 (我们的唯一方案) ---
         enableFallbackApi: false, // 是否启用后备API查询, 在URL中设为 true 来开启
         fallbackApiUrl: 'http://ip-api.com/json/{query}?lang=zh-CN&fields=status,countryCode'
     };
@@ -40,14 +39,9 @@ async function operator(proxies, $arguments) {
     const getCountryByCode = (code) => code ? countryData.find(c => c.code.toUpperCase() === code.toUpperCase()) : null;
     
     const getRegionInfo = async (proxy) => {
-        // 模式一: 尝试读取 Sub-Store 内置数据
+        // 模式一: (已被证明无效, 跳过)
         if (config.ipApiKey && config.countryCodeKey && proxy[config.ipApiKey]) {
-            const geoInfoObject = proxy[config.ipApiKey];
-            if (geoInfoObject && geoInfoObject[config.countryCodeKey]) {
-                const countryCode = geoInfoObject[config.countryCodeKey];
-                const country = getCountryByCode(countryCode);
-                if (country) return country; // 成功找到, 直接返回
-            }
+            // ...
         }
 
         const server = proxy.server.split(':')[0].toLowerCase();
@@ -63,11 +57,15 @@ async function operator(proxies, $arguments) {
         // 模式二: 如果前面都失败了, 并且用户开启了后备 API, 则自己查询
         if (config.enableFallbackApi) {
             try {
-                const url = config.fallbackApiUrl.replace('{query}', server);
-                const response = await $httpClient.get(url);
-                const data = JSON.parse(response.body);
-                if (data.status === 'success' && data.countryCode) {
-                    return getCountryByCode(data.countryCode);
+                // 判断是否为IP地址, 避免查询域名
+                const isIpAddress = /^((\d{1,3}\.){3}\d{1,3})$/.test(server);
+                if (isIpAddress) {
+                    const url = config.fallbackApiUrl.replace('{query}', server);
+                    const response = await $httpClient.get(url);
+                    const data = JSON.parse(response.body);
+                    if (data.status === 'success' && data.countryCode) {
+                        return getCountryByCode(data.countryCode);
+                    }
                 }
             } catch (error) {
                 console.log(`Fallback IP API query failed for ${server}: ${error.message}`);
@@ -102,7 +100,7 @@ async function operator(proxies, $arguments) {
         return config.keepUnidentified ? p : null;
     });
 
-    const resolvedProxies = await Promise.all(processedProxiesPromises);
+    const resolvedProxies = await Promise.all(resolvedProxies);
     const newProxies = resolvedProxies.filter(p => p !== null);
     return newProxies.length > 0 ? newProxies : proxies;
 }

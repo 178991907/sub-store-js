@@ -1,220 +1,208 @@
-// Async Operator: 使用 IP-API 的 region/regionName 重命名节点
-async function operator(proxies) {
-  // 1) 配置合并（优先使用 URL 中的 $arguments）
-  const defaultConfig = {
-    customText: '',
-    flag: true,
-    out: 'zh',                // 'zh' 或 'en'
-    enableNumbering: true,
-    separator: ' ',
-    keepUnidentified: false,
-    concurrency: 5,           // 并发查询数（建议 3~8）
-    timeout: 6000             // 单次查询超时 ms
-  };
-  const args = typeof $arguments === 'object' ? $arguments : {};
-  const config = { ...defaultConfig, ...args };
+async function operator(proxies, targetPlatform, env) {
+  const {
+    lang = 'zh-CN',
+    concurrency = 8,           // 并发
+    maxPerMinute = 45,         // ip-api 免费版预算
+    retryDelayMs = 60000,      // 分钟间隔
+    numbering = true,          // 是否编号
+    start = 1,                 // 编号起始
+    customText = '',           // 额外标注文本
+    prefer = 'ip-api',         // 'ip-api' | 'mmdb'
+  } = (typeof $arguments === 'object' ? $arguments : {}) || {};
 
-  // 2) 布尔/数字归一化
-  const toBool = (v) => v === true || v === 'true';
-  config.flag = toBool(config.flag);
-  config.enableNumbering = toBool(config.enableNumbering);
-  config.keepUnidentified = toBool(config.keepUnidentified);
-  const toInt = (v, def) => {
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) && n > 0 ? n : def;
-  };
-  config.concurrency = toInt(config.concurrency, defaultConfig.concurrency);
-  config.timeout = toInt(config.timeout, defaultConfig.timeout);
+  const cacheKey = '#geo-country-cache';
+  const cache = scriptResourceCache.get(cacheKey) || {};
 
-  // 3) 常用国家旗帜与名称映射（补充即可）
-  const COUNTRY = {
-    HK: { flag: '🇭🇰', zh: '香港', en: 'Hong Kong' },
-    TW: { flag: '🇹🇼', zh: '台湾', en: 'Taiwan' },
-    JP: { flag: '🇯🇵', zh: '日本', en: 'Japan' },
-    KR: { flag: '🇰🇷', zh: '韩国', en: 'Korea' },
-    SG: { flag: '🇸🇬', zh: '新加坡', en: 'Singapore' },
-    US: { flag: '🇺🇸', zh: '美国', en: 'United States' },
-    GB: { flag: '🇬🇧', zh: '英国', en: 'United Kingdom' },
-    DE: { flag: '🇩🇪', zh: '德国', en: 'Germany' },
-    FR: { flag: '🇫🇷', zh: '法国', en: 'France' },
-    CA: { flag: '🇨🇦', zh: '加拿大', en: 'Canada' },
-    AU: { flag: '🇦🇺', zh: '澳大利亚', en: 'Australia' },
-    RU: { flag: '🇷🇺', zh: '俄罗斯', en: 'Russia' },
-    IN: { flag: '🇮🇳', zh: '印度', en: 'India' },
-    BR: { flag: '🇧🇷', zh: '巴西', en: 'Brazil' },
-    NL: { flag: '🇳🇱', zh: '荷兰', en: 'Netherlands' },
-    IT: { flag: '🇮🇹', zh: '意大利', en: 'Italy' },
-    CH: { flag: '🇨🇭', zh: '瑞士', en: 'Switzerland' },
-    SE: { flag: '🇸🇪', zh: '瑞典', en: 'Sweden' },
-    TR: { flag: '🇹🇷', zh: '土耳其', en: 'Turkey' },
-    VN: { flag: '🇻🇳', zh: '越南', en: 'Vietnam' },
-    TH: { flag: '🇹🇭', zh: '泰国', en: 'Thailand' },
-    MY: { flag: '🇲🇾', zh: '马来西亚', en: 'Malaysia' },
-    ID: { flag: '🇮🇩', zh: '印尼', en: 'Indonesia' },
-    PH: { flag: '🇵🇭', zh: '菲律宾', en: 'Philippines' },
-    AE: { flag: '🇦🇪', zh: '阿联酋', en: 'United Arab Emirates' },
-    ZA: { flag: '🇿🇦', zh: '南非', en: 'South Africa' },
-    AR: { flag: '🇦🇷', zh: '阿根廷', en: 'Argentina' },
-    ES: { flag: '🇪🇸', zh: '西班牙', en: 'Spain' },
-    PL: { flag: '🇵🇱', zh: '波兰', en: 'Poland' },
-    IE: { flag: '🇮🇪', zh: '爱尔兰', en: 'Ireland' },
-    RO: { flag: '🇷🇴', zh: '罗马尼亚', en: 'Romania' },
-    LT: { flag: '🇱🇹', zh: '立陶宛', en: 'Lithuania' },
-    CM: { flag: '🇨🇲', zh: '喀麦隆', en: 'Cameroon' }
+  const mmdb = (() => {
+    try { return new ProxyUtils.MMDB(); } catch (e) { return null; }
+  })();
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isIPLiteral = (h) => /^(\d{1,3}\.){3}\d{1,3}$/.test(h) || /^[0-9a-fA-F:]+$/.test(h);
+  const cleanHost = (h = '') => (h || '').replace(/^\[|]$/g, '').trim();
+
+  const isoToFlag = (iso) => {
+    if (!iso || iso.length !== 2) return '';
+    const codePoints = [...iso.toUpperCase()].map(c => 127397 + c.charCodeAt(0));
+    return String.fromCodePoint(...codePoints);
   };
 
-  // 4) 自定义域名关键词映射（你提供的）
-  const customDomainMap = {
-    yd: 'HK', dx: 'HK', lt: 'HK', cm: 'CM', wto: 'US',
-    visasg: 'SG', openai: 'US', shopify: 'US', bp: 'US', qms: 'US', sy: 'US'
+  const nameOfISO = (iso, zh = true) => {
+    // 常见国家映射；未列出则使用 ISO 作为兜底
+    const MAP_ZH = {
+      CN:'中国', HK:'香港', MO:'澳门', TW:'台湾', JP:'日本', KR:'韩国',
+      US:'美国', CA:'加拿大', GB:'英国', DE:'德国', FR:'法国', NL:'荷兰',
+      RU:'俄罗斯', SG:'新加坡', AU:'澳大利亚', IN:'印度', ID:'印度尼西亚',
+      TH:'泰国', VN:'越南', MY:'马来西亚', PH:'菲律宾', AE:'阿联酋'
+    };
+    const MAP_EN = {
+      CN:'China', HK:'Hong Kong', MO:'Macau', TW:'Taiwan', JP:'Japan', KR:'South Korea',
+      US:'United States', CA:'Canada', GB:'United Kingdom', DE:'Germany', FR:'France', NL:'Netherlands',
+      RU:'Russia', SG:'Singapore', AU:'Australia', IN:'India', ID:'Indonesia',
+      TH:'Thailand', VN:'Vietnam', MY:'Malaysia', PH:'Philippines', AE:'UAE'
+    };
+    const map = zh ? MAP_ZH : MAP_EN;
+    return map[iso] || iso;
   };
 
-  // 5) 工具函数
-  const langParam = config.out === 'en' ? 'en' : 'zh-CN';
-  const fields = 'status,message,query,country,countryCode,region,regionName,city';
-  const counters = {};
-  const cache = new Map();
-
-  const cleanHost = (server) => {
-    let host = String(server || '').trim();
-    // 去掉端口与 IPv6 包裹
-    host = host.split(':')[0].replace(/^\[/, '').replace(/\]$/, '');
-    return host.toLowerCase();
-  };
-  const isIPLiteral = (host) =>
-    /^(\d{1,3}(\.\d{1,3}){3})$/.test(host) || /^[0-9a-fA-F:]+$/.test(host);
-
-  // 优先使用 Loon/Surge 的 $httpClient，其次 fetch，最后 Node http
-  async function httpGetJSON(url, timeout = 6000) {
-    if (typeof $httpClient !== 'undefined' && $httpClient?.get) {
-      return await new Promise((resolve, reject) => {
-        const req = $httpClient.get(
-          { url, headers: { 'User-Agent': 'Sub-Store-Script/1.0' } },
-          (err, resp, body) => {
-            if (err) return reject(err);
-            try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
-          }
-        );
-        // 部分环境不支持设置超时，这里按需忽略
-      });
-    }
-    if (typeof fetch === 'function') {
-      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const tid = ctrl ? setTimeout(() => ctrl.abort(), timeout) : null;
-      try {
-        const res = await fetch(url, { signal: ctrl?.signal, headers: { 'User-Agent': 'Sub-Store-Script/1.0' } });
-        if (tid) clearTimeout(tid);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      } catch (e) {
-        if (tid) clearTimeout(tid);
-        throw e;
-      }
-    }
-    const http = require('http');
-    return await new Promise((resolve, reject) => {
-      const req = http.get(url, { headers: { 'User-Agent': 'Sub-Store-Script/1.0' } }, (res) => {
-        let data = '';
-        res.on('data', (d) => (data += d));
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+  async function httpGetJSON(url) {
+    // 1) $httpClient
+    if (typeof $httpClient !== 'undefined') {
+      return new Promise((resolve) => {
+        $httpClient.get({ url }, (err, resp, body) => {
+          if (err) return resolve(null);
+          try {
+            if (resp && resp.status === 429) return resolve({ status:'fail', message:'too many requests' });
+            const json = JSON.parse(body || '{}');
+            resolve(json);
+          } catch (e) { resolve(null); }
         });
       });
-      req.setTimeout(timeout, () => { try { req.abort(); } catch (e) {} reject(new Error('Timeout')); });
-      req.on('error', reject);
-    });
-  }
-
-  async function lookupRegion(host) {
-    if (!host) return null;
-    if (cache.has(host)) return cache.get(host);
-
-    // 先做域名关键词快速映射
-    const parts = host.split('.');
-    for (const part of parts) {
-      const cc = customDomainMap[part];
-      if (cc && COUNTRY[cc]) {
-        const info = { countryCode: cc, regionName: COUNTRY[cc][config.out], country: COUNTRY[cc].en, query: null };
-        cache.set(host, info);
-        return info;
-      }
     }
-
-    // 直接查询 IP-API（支持域名/IPv4/IPv6）
+    // 2) fetch
+    if (typeof fetch !== 'undefined') {
+      const resp = await fetch(url);
+      if (resp.status === 429) return { status:'fail', message:'too many requests' };
+      return await resp.json();
+    }
+    // 3) Node http
     try {
-      const url = `http://ip-api.com/json/${encodeURIComponent(host)}?lang=${langParam}&fields=${fields}`;
-      const data = await httpGetJSON(url, config.timeout);
-      if (data.status !== 'success') throw new Error(data.message || 'IP-API failed');
-      const info = {
-        countryCode: data.countryCode,
-        region: data.region,
-        regionName: data.regionName || data.country,
-        country: data.country,
-        query: data.query
-      };
-      cache.set(host, info);
-      return info;
-    } catch (e) {
-      // 可选：当 host 是字面量 IP 且系统配置了 MMDB，走离线国家兜底（仅国家，不含省/州）
-      try {
-        if (isIPLiteral(host) && typeof ProxyUtils !== 'undefined' && ProxyUtils?.MMDB) {
-          const mmdb = new ProxyUtils.MMDB({});
-          const iso = mmdb.geoip(host);
-          if (iso && COUNTRY[iso]) {
-            const info = { countryCode: iso, regionName: COUNTRY[iso][config.out], country: COUNTRY[iso].en, query: host };
-            cache.set(host, info);
-            return info;
-          }
-        }
-      } catch (_) {}
-      return null;
-    }
+      const http = eval('require("http")');
+      return await new Promise((resolve) => {
+        http.get(url, (res) => {
+          if (res.statusCode === 429) return resolve({ status:'fail', message:'too many requests' });
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => {
+            try { resolve(JSON.parse(data || '{}')); } catch (e) { resolve(null); }
+          });
+        }).on('error', () => resolve(null));
+      });
+    } catch (e) { return null; }
   }
 
-  async function runWithConcurrency(items, fn, concurrency) {
+  async function lookupCountryOnline(ip) {
+    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=${lang}&fields=status,country,countryCode,message`;
+    try {
+      const data = await httpGetJSON(url);
+      if (!data) return { code: undefined, name: undefined, rateLimited: false };
+      if (data.status === 'success') {
+        return { code: (data.countryCode || '').toUpperCase(), name: data.country, rateLimited: false };
+      }
+      const msg = (data.message || '').toLowerCase();
+      if (msg.includes('too many requests')) {
+        return { code: undefined, name: undefined, rateLimited: true };
+      }
+    } catch (e) { /* 网络错误，稍后回退 */ }
+    return { code: undefined, name: undefined, rateLimited: false };
+  }
+
+  function lookupCountryOffline(ip) {
+    try {
+      const iso = mmdb?.geoip(ip);
+      if (iso) {
+        const isoUp = iso.toUpperCase();
+        return { code: isoUp, name: nameOfISO(isoUp, lang.startsWith('zh')), rateLimited: false };
+      }
+    } catch (e) { /* ignore */ }
+    return { code: undefined, name: undefined, rateLimited: false };
+  }
+
+  async function runWithConcurrency(items, limit, worker) {
     const results = new Array(items.length);
     let idx = 0;
-    async function worker() {
+    const runOne = async () => {
       while (idx < items.length) {
-        const i = idx++;
-        try { results[i] = await fn(items[i]); } catch (_) { results[i] = null; }
+        const cur = idx++;
+        const ip = items[cur];
+        try {
+          results[cur] = await worker(ip);
+        } catch (e) {
+          results[cur] = { code: undefined, name: undefined, rateLimited: false };
+        }
       }
-    }
-    await Promise.all(Array.from({ length: concurrency }, worker));
+    };
+    const workers = Array(Math.min(limit, items.length)).fill(0).map(runOne);
+    await Promise.all(workers);
     return results;
   }
 
-  // 6) 批量查询
-  const hosts = proxies.map((p) => cleanHost(p.server));
-  const infos = await runWithConcurrency(hosts, lookupRegion, config.concurrency);
+  // 收集唯一 IP：优先使用域名解析算子写入的 _IP，其次 server 字段
+  const ips = [...new Set(
+    proxies
+      .map(p => cleanHost(p._IP || p.server))
+      .filter(h => isIPLiteral(h))
+  )];
 
-  // 7) 命名与返回
-  const outIsZh = config.out === 'zh';
-  const renamed = [];
-  for (let i = 0; i < proxies.length; i++) {
-    const p = { ...proxies[i] };
-    const info = infos[i];
-    if (!info) { if (config.keepUnidentified) renamed.push(p); continue; }
+  // 先用缓存填充
+  const unknown = ips.filter(ip => !cache[ip] || !cache[ip].code);
 
-    const cc = info.countryCode || 'US';
-    const flag = config.flag && COUNTRY[cc]?.flag ? COUNTRY[cc].flag : '';
-    // 优先使用 regionName；缺省时回退到国家名
-    const displayName =
-      info.regionName ||
-      (COUNTRY[cc] ? (outIsZh ? COUNTRY[cc].zh : COUNTRY[cc].en) : (outIsZh ? cc : cc));
+  const zh = lang.startsWith('zh');
 
-    // 编号与附加文本
-    const extraParts = [];
-    if (config.customText) extraParts.push(config.customText);
-    if (config.enableNumbering) {
-      counters[cc] = (counters[cc] || 0) + 1;
-      extraParts.push(String(counters[cc]).padStart(2, '0'));
+  if (prefer === 'mmdb') {
+    // 严格离线：仅用 MMDB 一次性完成识别
+    const results = await runWithConcurrency(unknown, concurrency, async (ip) => lookupCountryOffline(ip));
+    for (let i = 0; i < unknown.length; i++) {
+      const ip = unknown[i];
+      const r = results[i] || {};
+      cache[ip] = { code: r.code, name: r.name };
     }
+    scriptResourceCache.set(cacheKey, cache);
+  } else {
+    // 在线模式：分钟预算 + 限速重试，失败回退 MMDB
+    while (unknown.length > 0) {
+      const minuteStart = Date.now();
+      const batch = unknown.splice(0, maxPerMinute);
+      const results = await runWithConcurrency(batch, concurrency, lookupCountryOnline);
 
-    const base = [flag, displayName].filter(Boolean).join(' '); // 旗帜与地区名之间固定空格
-    p.name = extraParts.length ? base + config.separator + extraParts.join(config.separator) : base;
-    renamed.push(p);
+      const needNext = [];
+      for (let i = 0; i < batch.length; i++) {
+        const ip = batch[i];
+        const r = results[i] || {};
+        if (r.rateLimited) {
+          needNext.push(ip);                 // 受限，下一分钟再试
+        } else if (r.code) {
+          cache[ip] = { code: r.code, name: r.name }; // 在线成功
+        } else {
+          // 在线失败，尝试离线回退
+          const off = lookupCountryOffline(ip);
+          cache[ip] = { code: off.code, name: off.name };
+        }
+      }
+      if (needNext.length > 0) {
+        unknown.unshift(...needNext);
+      }
+      scriptResourceCache.set(cacheKey, cache);
+
+      if (unknown.length > 0) {
+        const elapsed = Date.now() - minuteStart;
+        const wait = Math.max(retryDelayMs - elapsed, 5000);
+        await sleep(wait);
+      }
+    }
   }
 
-  return renamed.length > 0 ? renamed : proxies;
+  // 重命名：仅国家与旗帜；可编号与自定义文本；不显示州/省
+  let seq = start;
+  const renamed = proxies.map((p) => {
+    const host = cleanHost(p._IP || p.server);
+    const info = cache[host] || {};
+    const iso = info.code && info.code.toUpperCase();
+    const flag = isoToFlag(iso) || ''; // 未识别不加旗帜
+    const countryName = iso ? (info.name || nameOfISO(iso, zh)) : (zh ? '未知' : 'Unknown');
+
+    // 清除旧旗帜，保留纯国家信息
+    const base = ProxyUtils.removeFlag(p.name);
+
+    const num = numbering ? ` ${String(seq).padStart(2, '0')}` : '';
+    if (numbering) seq++;
+
+    const extra = customText ? ` ${customText}` : '';
+    // 最终仅显示国家与旗帜（按需编号与附加文本）
+    p.name = `${flag ? flag + ' ' : ''}${countryName}${extra}${num}`.trim();
+
+    return p;
+  });
+
+  return renamed;
 }
